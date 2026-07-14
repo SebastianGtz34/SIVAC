@@ -1,0 +1,222 @@
+/* =========================================================
+   SIVAC — Sistema de Diseño MESS
+   Stack: Bootstrap 4.6 + SB Admin 2 + Font Awesome 5 + DataTables + SweetAlert2
+   Convención: nunca hex hardcoded en componentes — siempre var(--*).
+   Acento institucional SIVAC: azul MESS #074480 (gradiente → #0a1c61).
+   ========================================================= */
+
+/* ===== Design tokens (claro) ===== */
+:root {
+    --bg:        #f2f4f8;
+    --card-bg:   #ffffff;
+    --card-soft: #f8f9fc;
+    --border:    #e3e6ec;
+    --shadow:    0 .35rem 1rem rgba(0, 0, 0, .06);
+
+    --text:       #1f2937;
+    --text-muted: #6c757d;
+
+    --accent:      #074480;
+    --accent-dark: #0a1c61;
+    --accent-soft: #e7f0fa;
+
+    --header-gradient: linear-gradient(180deg, #074480 0%, #0a1c61 100%);
+
+    --success: #1e9e73;
+    --warning: #e0a800;
+    --info:    #2f80b8;
+    --danger:  #d9534f;
+    --neutral: #8a94a6;
+
+    --topbar-bg:     var(--card-bg);
+    --topbar-shadow: 0 .15rem 1.75rem 0 rgba(58, 59, 69, .10);
+
+    --primary:      var(--accent);
+    --primary-dark: var(--accent-dark);
+
+    /* series de gráficas (validadas para daltonismo/contraste, modo claro) */
+    --chart-1: #2b6cb0;
+    --chart-2: #dd6b20;
+    --grid:    #e3e6ec;
+}
+
+/* ===== Design tokens (oscuro) ===== */
+body.theme-dark {
+    --bg:         #0b1220;
+    --card-bg:    #121a2b;
+    --card-soft:  #1a2438;
+    --text:       #e6edf7;
+    --text-muted: #9aa7bd;
+    --border:     #243049;
+    --shadow:     0 .5rem 1.25rem rgba(0, 0, 0, .45);
+
+    --accent:      #3d8bd4;
+    --accent-dark: #2f6ea8;
+    --accent-soft: #16273c;
+
+    --success: #29b083;
+    --warning: #d4b048;
+    --info:    #4a97cc;
+    --danger:  #e06561;
+
+    --topbar-bg:     #121a2b;
+    --topbar-shadow: 0 .15rem 1.75rem 0 rgba(0, 0, 0, .35);
+
+    /* series de gráficas (validadas contra superficie oscura #121a2b) */
+    --chart-1: #4a97cc;
+    --chart-2: #cc7a2e;
+    --grid:    #243049;
+}
+
+/* ===== Base ===== */
+html, body { height: 100%; }
+body {
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: 'Nunito', 'Segoe UI', sans-serif;
+    font-size: .9rem;
+    transition: background-color .2s, color .2s;
+}
+a { color: var(--accent); }
+a:hover { color: var(--accent-dark); }
+
+/* ===== Scrollbar ===== */
+::-webkit-scrollbar        { width: 7px; height: 7px; }
+::-webkit-scrollbar-track  { background: var(--bg); }
+::-webkit-scrollbar-thumb  { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ===== Sidebar (SB Admin 2, paleta MESS) ===== */
+.sidebar.bg-gradient-primary {
+    background-color: var(--accent) !important;
+    background-image: var(--header-gradient) !important;
+    background-size: cover;
+}
+.sidebar .nav-item .nav-link { color: rgba(255, 255, 255, .8); font-weight: 600; }
+.sidebar .nav-item .nav-link:hover { color: #fff; }
+.sidebar .nav-item .nav-link i { color: rgba(255, 255, 255, .55); }
+.sidebar .nav-item.active .nav-link,
+.sidebar .nav-item .nav-link.active { color: #fff; }
+.sidebar .nav-item.active .nav-link i { color: #fff; }
+.sidebar .sidebar-brand { height: auto; padding: 1.25rem 1rem; }
+.sidebar-brand-text { letter-spacing: .04rem; }
+.sidebar-heading { color: rgba(255, 255, 255, .5); }
+
+/* ===== Topbar ===== */
+.topbar {
+    background: var(--topbar-bg);
+    box-shadow: var(--topbar-shadow);
+    height: 4.375rem;
+}
+.topbar .nav-link { color: var(--text-muted); }
+.topbar #nombreUsuario { color: var(--text); font-weight: 700; }
+
+/* ===== Superficies ===== */
+.card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    color: var(--text);
+}
+.card .card-header {
+    background: var(--card-soft);
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    font-weight: 700;
+}
+.page-header {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: .75rem; margin-bottom: 1.25rem;
+}
+.page-header h1 { font-size: 1.4rem; font-weight: 800; color: var(--text); margin: 0; }
+.text-muted { color: var(--text-muted) !important; }
+
+/* ===== Stat cards (SB Admin 2 border-left) ===== */
+.stat-card { border-left: .25rem solid var(--accent); }
+.stat-card.stat-info    { border-left-color: var(--info); }
+.stat-card.stat-success { border-left-color: var(--success); }
+.stat-card.stat-warning { border-left-color: var(--warning); }
+.stat-card.stat-danger  { border-left-color: var(--danger); }
+.stat-label { font-size: .7rem; font-weight: 800; text-transform: uppercase; letter-spacing: .05rem; color: var(--accent); }
+.stat-card.stat-info    .stat-label { color: var(--info); }
+.stat-card.stat-success .stat-label { color: var(--success); }
+.stat-card.stat-warning .stat-label { color: var(--warning); }
+.stat-card.stat-danger  .stat-label { color: var(--danger); }
+.stat-value { font-size: 1.6rem; font-weight: 800; color: var(--text); }
+.stat-icon  { font-size: 2rem; color: var(--border); }
+
+/* ===== Botones ===== */
+.btn-primary {
+    background-color: var(--accent); border-color: var(--accent);
+}
+.btn-primary:hover, .btn-primary:focus {
+    background-color: var(--accent-dark); border-color: var(--accent-dark);
+}
+.btn-outline-primary { color: var(--accent); border-color: var(--accent); }
+.btn-outline-primary:hover { background-color: var(--accent); border-color: var(--accent); }
+
+/* ===== Badges por estatus del pipeline ===== */
+.badge-estatus { font-size: .72rem; font-weight: 700; padding: .35em .6em; color: #fff; }
+.badge-capturado               { background: var(--neutral); }
+.badge-enviado_solicitante     { background: #6f7fd6; }
+.badge-aprobado_solicitante    { background: #4a97cc; }
+.badge-psicometrico_asignado   { background: #b07dd6; }
+.badge-psicometrico_presentado { background: #8e5fc2; }
+.badge-entrevista_confirmada   { background: #2f80b8; }
+.badge-entrevistado            { background: #1f6f9e; }
+.badge-propuesta_enviada       { background: var(--warning); color: #3a2f00; }
+.badge-propuesta_expirada      { background: #c98a00; }
+.badge-propuesta_aceptada      { background: #2c9e6a; }
+.badge-documentacion           { background: #157a5b; }
+.badge-contratado              { background: var(--success); }
+.badge-descartado              { background: var(--danger); }
+
+/* estatus de vacante */
+.badge-vac-abierta    { background: var(--success); color:#fff; }
+.badge-vac-en_proceso { background: var(--info); color:#fff; }
+.badge-vac-pausada    { background: var(--warning); color:#3a2f00; }
+.badge-vac-cerrada    { background: var(--neutral); color:#fff; }
+.badge-vac-cancelada  { background: var(--danger); color:#fff; }
+
+/* ===== DataTables (adaptación a tokens) ===== */
+.dataTables_wrapper { color: var(--text); }
+table.dataTable { color: var(--text); border-color: var(--border); }
+table.dataTable thead th { border-bottom: 2px solid var(--border); color: var(--text); }
+table.dataTable tbody td { border-top: 1px solid var(--border); }
+table.dataTable tbody tr { background: var(--card-bg); }
+.table td, .table th { border-color: var(--border); }
+.dataTables_wrapper .dataTables_paginate .paginate_button.current {
+    background: var(--accent) !important; border-color: var(--accent) !important; color: #fff !important;
+}
+.dataTables_wrapper input, .dataTables_wrapper select {
+    background: var(--card-bg); color: var(--text); border: 1px solid var(--border); border-radius: .25rem;
+}
+
+/* ===== Formularios ===== */
+.form-control, .custom-select {
+    background: var(--card-bg); color: var(--text); border-color: var(--border);
+}
+.form-control:focus {
+    background: var(--card-bg); color: var(--text);
+    border-color: var(--accent); box-shadow: 0 0 0 .2rem rgba(7, 68, 128, .15);
+}
+.modal-content { background: var(--card-bg); color: var(--text); }
+.modal-header, .modal-footer { border-color: var(--border); }
+
+/* ===== Timeline de historial ===== */
+.timeline { list-style: none; padding-left: 1rem; margin: 0; border-left: 2px solid var(--border); }
+.timeline > li { position: relative; padding: 0 0 1rem 1.25rem; }
+.timeline > li::before {
+    content: ''; position: absolute; left: -.42rem; top: .15rem;
+    width: .7rem; height: .7rem; border-radius: 50%; background: var(--accent);
+}
+.timeline .t-fecha { font-size: .75rem; color: var(--text-muted); }
+
+/* ===== Embeds (sin sidebar) ===== */
+body.embed { background: transparent; padding: 1rem; }
+body.embed .card { margin-bottom: 1rem; }
+
+/* ===== Utilidades ===== */
+.fs-7 { font-size: .8rem; }
+.fw-700 { font-weight: 700; }
+.cursor-pointer { cursor: pointer; }

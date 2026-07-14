@@ -1,0 +1,3 @@
+# Denegar TODO acceso directo por HTTP a los archivos subidos.
+# La descarga se hace únicamente vía descargar.php (sesión + permiso).
+Require all denied

@@ -1,0 +1,31 @@
+# Credenciales por entorno (usar los .example.php como plantilla)
+conn.php
+config_correo.php
+
+# Entorno de trabajo
+.claude/
+.vscode/
+error_log
+
+# Archivos subidos (CVs y documentos de candidatos — datos personales)
+uploads/**
+!uploads/**/
+!uploads/**/.htaccess
+!uploads/**/index.html
+
+# Binarios sueltos (evita commitear evidencias/exports por accidente)
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.doc
+*.docx
+*.xls
+*.xlsx
+*.zip
+*.csv
+
+# Whitelist: assets del sistema sí van al repo
+!img/**
+!vendor/**
