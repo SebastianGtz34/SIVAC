@@ -28,7 +28,7 @@
 <script src="vendor/datatables/dataTables.bootstrap4.min.js"></script>
 <script src="vendor/chart.js/Chart.min.js"></script>
 <script src="vendor/sweetalert2/sweetalert2.all.min.js"></script>
-<script src="js/funciones.js"></script>
+<script src="<?= sivacAsset('js/funciones.js') ?>"></script>
 
 <script>
 /* ===== Tema claro/oscuro ===== */

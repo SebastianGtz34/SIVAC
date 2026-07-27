@@ -1,24 +1,9 @@
 /* contrataciones.js — Cierre: propuesta, documentación y alta (RRHH). */
 $(function () {
     var estatusS = window.SIVAC_estatusS || {};
-    var tiposDoc = [];
-    var tabla = $('#tablaCierre').DataTable({
+    var tabla = dtAutoAjustar($('#tablaCierre').DataTable({
         language: dtIdioma(), order: [], columnDefs: [{ orderable: false, targets: [4] }]
-    });
-
-    function cargarTipos(cb) {
-        ajaxPost('acciones_cierre.php', { accion: 'tipos_documento' }, function (err, res) {
-            if (!err && res && res.success) {
-                tiposDoc = res.data;
-                var opts = '<option value="">Tipo de documento…</option>';
-                res.data.forEach(function (t) {
-                    opts += '<option value="' + t.id + '">' + escHtml(t.nombre) + (parseInt(t.obligatorio) ? ' *' : '') + '</option>';
-                });
-                $('#doc_tipo').html(opts);
-            }
-            if (cb) cb();
-        });
-    }
+    }));
 
     function cargar() {
         ajaxPost('acciones_cierre.php', { accion: 'listar' }, function (err, res) {
@@ -37,13 +22,18 @@ $(function () {
                 }
 
                 var acc = '<div class="btn-group btn-group-sm">';
-                if (c.estatus === 'entrevistado' || c.estatus === 'propuesta_expirada') {
+                if (c.estatus === 'entrevistado' && parseInt(c.requiere_propuesta) === 0) {
+                    // Prácticas: se salta la propuesta económica y pasa directo
+                    // a documentación.
+                    acc += '<button class="btn btn-outline-primary btnDocDirecto" data-id="' + c.id + '"><i class="fas fa-forward mr-1"></i>Pasar a documentación</button>';
+                } else if (c.estatus === 'entrevistado' || c.estatus === 'propuesta_expirada') {
                     acc += '<button class="btn btn-outline-primary btnPropuesta" data-id="' + c.id + '"><i class="fas fa-paper-plane mr-1"></i>Propuesta</button>';
                 } else if (c.estatus === 'propuesta_enviada') {
                     acc += '<button class="btn btn-outline-success btnResp" data-id="' + c.id + '" data-r="aceptada"><i class="fas fa-check"></i></button>';
                     acc += '<button class="btn btn-outline-danger btnResp" data-id="' + c.id + '" data-r="rechazada"><i class="fas fa-times"></i></button>';
                 } else if (c.estatus === 'documentacion') {
                     acc += '<button class="btn btn-outline-primary btnDocs" data-id="' + c.id + '" data-nombre="' + escHtml(c.nombre) + '"><i class="fas fa-folder-open mr-1"></i>Documentación</button>';
+                    acc += '<button class="btn btn-outline-secondary btnEnlace" data-id="' + c.id + '" title="Copiar enlace del portal del candidato"><i class="fas fa-link"></i></button>';
                 }
                 acc += '</div>';
 
@@ -55,6 +45,7 @@ $(function () {
                 ]);
             });
             tabla.draw();
+            tabla.columns.adjust();   // recomputa anchos tras poblar por AJAX
         });
     }
 
@@ -67,6 +58,19 @@ $(function () {
     // Propuesta
     $('#tablaCierre tbody').on('click', '.btnPropuesta', function () {
         $('#formPropuesta')[0].reset(); $('#prop_id').val($(this).data('id')); $('#modalPropuesta').modal('show');
+    });
+
+    // Prácticas: entrevistado → documentación (sin propuesta de por medio).
+    $('#tablaCierre tbody').on('click', '.btnDocDirecto', function () {
+        var id = $(this).data('id');
+        confirmarAccion('El candidato de prácticas pasará a documentación con 15 días para entregar sus documentos.',
+            function () {
+                ajaxPost('acciones_cierre.php', { accion: 'iniciar_documentacion', id: id }, function (err, res) {
+                    if (res && res.success) { mostrarToast(res.message, 'success'); cargar(); }
+                    else { mostrarToast((res && res.message) || 'Error.', 'error'); }
+                });
+            },
+            { titulo: '¿Pasar a documentación?', confirmar: 'Sí, continuar', icon: 'question' });
     });
     $('#formPropuesta').on('submit', function (e) {
         e.preventDefault();
@@ -100,6 +104,35 @@ $(function () {
         $('#modalDocs').modal('show');
     });
 
+    // Genera y muestra el enlace del portal del candidato para copiarlo (el correo
+    // está apagado en pruebas). Regenerar invalida el anterior.
+    $('#tablaCierre tbody').on('click', '.btnEnlace', function () {
+        var id = $(this).data('id');
+        ajaxPost('acciones_cierre.php', { accion: 'generar_enlace_portal', id: id }, function (err, res) {
+            if (!res || !res.success) { mostrarToast((res && res.message) || 'No se pudo generar el enlace.', 'error'); return; }
+            var url = res.url;
+            Swal.fire({
+                title: 'Enlace del portal del candidato',
+                html: '<p class="small text-muted mb-2">' + escHtml(res.message) + '</p>'
+                    + '<input id="sw_enlace" class="swal2-input" readonly value="' + escHtml(url) + '" style="font-size:.8rem">',
+                showCancelButton: true, confirmButtonText: 'Copiar', cancelButtonText: 'Cerrar',
+                confirmButtonColor: messColor('accent'), background: messColor('card-bg'), color: messColor('text'),
+                didOpen: function () { var el = document.getElementById('sw_enlace'); if (el) el.select(); }
+            }).then(function (r) {
+                if (!r.isConfirmed) return;
+                if (navigator.clipboard) { navigator.clipboard.writeText(url).then(function () { mostrarToast('Enlace copiado.', 'success'); }); }
+                else { mostrarToast('Copia el enlace manualmente.', 'info'); }
+            });
+        });
+    });
+
+    /** Badge del estado de validación de un documento. */
+    function badgeValidacion(v) {
+        if (v === 'validado')  return '<span class="badge badge-success">Validado</span>';
+        if (v === 'rechazado') return '<span class="badge badge-danger">Rechazado</span>';
+        return '<span class="badge badge-light">Pendiente</span>';
+    }
+
     function cargarFicha() {
         ajaxPost('acciones_candidatos.php', { accion: 'detalle', id: docCandidato }, function (err, res) {
             if (err || !res || !res.success) return;
@@ -107,38 +140,45 @@ $(function () {
             var html = '';
             if (!docs.length) html = '<li class="list-group-item text-muted small">Sin documentos.</li>';
             docs.forEach(function (d) {
-                html += '<li class="list-group-item d-flex justify-content-between align-items-center py-2">'
-                    + '<div><div class="small fw-700">' + escHtml(d.tipo) + '</div>'
+                var val = d.validacion || 'pendiente';
+                var acc = '';
+                if (val !== 'validado') acc += '<button class="btn btn-sm btn-outline-success btnValDoc" data-id="' + d.id + '" title="Validar"><i class="fas fa-check"></i></button> ';
+                if (val !== 'rechazado') acc += '<button class="btn btn-sm btn-outline-warning btnRecDoc" data-id="' + d.id + '" title="Rechazar"><i class="fas fa-ban"></i></button> ';
+                html += '<li class="list-group-item py-2">'
+                    + '<div class="d-flex justify-content-between align-items-center">'
+                    + '<div><div class="small fw-700">' + escHtml(d.tipo) + ' ' + badgeValidacion(val) + '</div>'
                     + '<a href="descargar.php?tipo=documento&id=' + d.id + '" target="_blank" class="small">' + escHtml(d.nombre_original) + '</a></div>'
-                    + '<button class="btn btn-sm btn-outline-danger btnDelDoc" data-id="' + d.id + '"><i class="fas fa-trash"></i></button></li>';
+                    + '<div class="btn-group btn-group-sm">' + acc + '</div></div>'
+                    + (val === 'rechazado' && d.motivo_validacion
+                        ? '<div class="text-danger small mt-1"><i class="fas fa-exclamation-circle mr-1"></i>' + escHtml(d.motivo_validacion) + '</div>'
+                        : '')
+                    + '</li>';
             });
             $('#listaDocs').html(html);
-            var ci = res.data;
-            var info = [];
-            if (ci.psicometrico_folio) info.push('Psicométrico: ' + escHtml(ci.psicometrico_folio));
-            $('#cierreInfo').html(info.join(' · '));
+            $('#cierreInfo').html('');
         });
     }
 
-    $('#formDoc').on('submit', function (e) {
-        e.preventDefault();
-        if (!$('#doc_tipo').val()) { mostrarToast('Selecciona el tipo de documento.', 'warning'); return; }
-        var fd = new FormData();
-        fd.append('accion', 'subir_documento');
-        fd.append('id', docCandidato);
-        fd.append('id_tipo', $('#doc_tipo').val());
-        if ($('#doc_archivo')[0].files[0]) fd.append('documento', $('#doc_archivo')[0].files[0]);
-        ajaxUpload('acciones_cierre.php', fd, function (err, res) {
-            if (res && res.success) { mostrarToast('Documento subido.', 'success'); $('#formDoc')[0].reset(); cargarFicha(); }
+    $('#listaDocs').on('click', '.btnValDoc', function () {
+        var idDoc = $(this).data('id');
+        ajaxPost('acciones_cierre.php', { accion: 'validar_documento', id_documento: idDoc, decision: 'validar' }, function (err, res) {
+            if (res && res.success) { mostrarToast(res.message, 'success'); cargarFicha(); }
             else { mostrarToast((res && res.message) || 'Error.', 'error'); }
         });
     });
 
-    $('#listaDocs').on('click', '.btnDelDoc', function () {
+    $('#listaDocs').on('click', '.btnRecDoc', function () {
         var idDoc = $(this).data('id');
-        confirmarAccion('¿Eliminar este documento?', function () {
-            ajaxPost('acciones_cierre.php', { accion: 'eliminar_documento', id_documento: idDoc }, function (err, res) {
-                if (res && res.success) { cargarFicha(); } else { mostrarToast((res && res.message) || 'Error.', 'error'); }
+        Swal.fire({
+            title: 'Rechazar documento', input: 'textarea', inputLabel: 'Motivo del rechazo',
+            inputPlaceholder: 'Escribe el motivo…', showCancelButton: true,
+            confirmButtonColor: messColor('danger'), background: messColor('card-bg'), color: messColor('text'),
+            confirmButtonText: 'Rechazar', cancelButtonText: 'Cancelar'
+        }).then(function (r) {
+            if (!r.isConfirmed || !r.value) return;
+            ajaxPost('acciones_cierre.php', { accion: 'validar_documento', id_documento: idDoc, decision: 'rechazar', motivo: r.value }, function (err, res) {
+                if (res && res.success) { mostrarToast(res.message, 'info'); cargarFicha(); }
+                else { mostrarToast((res && res.message) || 'Error.', 'error'); }
             });
         });
     });
@@ -169,7 +209,7 @@ $(function () {
 
     $('#btnCompletarAlta').on('click', function (e) {
         e.preventDefault();
-        confirmarAccion('Se completará el alta, se cerrará la vacante y se enviarán los avisos a las áreas. ¿Continuar?', function () {
+        confirmarAccion('Se completará el alta y se enviarán los avisos a las áreas. La vacante se cerrará sólo si con esta alta se cubren todas sus posiciones. ¿Continuar?', function () {
             ajaxPost('acciones_cierre.php', { accion: 'completar_alta', id: docCandidato }, function (err, res) {
                 if (res && res.success) { $('#modalDocs').modal('hide'); mostrarToast(res.message, 'success'); cargar(); }
                 else { mostrarToast((res && res.message) || 'Error.', 'error'); }
@@ -177,5 +217,5 @@ $(function () {
         }, { titulo: 'Completar alta', confirmar: 'Sí, dar de alta', icon: 'question' });
     });
 
-    cargarTipos(cargar);
+    cargar();
 });

@@ -12,8 +12,18 @@
  *  - Solicitante           → dueño de una vacante (no_empleado_solicitante).
  *    No requiere departamento; su permiso se valida por PERTENENCIA en cada
  *    consulta (JOIN), nunca por un parámetro del cliente.
+ *  - Jefe / gerente        → empleado con AL MENOS UN subordinado activo
+ *    (mess_rrhh.usuarios.jefe apunta a él). Puede levantar requisiciones —que
+ *    nacen pendientes de VoBo de RRHH— y ver el dashboard acotado a su equipo.
  *  - Consulta              → tabla accesos_consulta (vista read-only). RRHH la
  *    tiene implícitamente.
+ *
+ * POR QUÉ LA JERARQUÍA Y NO tipo_usr: mess_rrhh.usuarios tiene una etiqueta
+ * tipo_usr con valores 'JEFE'/'GERENTE', pero está incompleta — hay 30 empleados
+ * con subordinados activos y solo 21 etiquetados (p. ej. jefes reales con 13 y 11
+ * subordinados figuran como 'ADMINISTRACION' y 'VENTAS'). Gatear por la etiqueta
+ * dejaría fuera a jefes de facto, así que el rol se deriva de la relación real
+ * usuarios.jefe → usuarios.noEmpleado.
  *
  * Reglas de oro:
  *  - Verificación SIEMPRE en backend antes de una acción protegida.
@@ -141,7 +151,7 @@ if (!function_exists('sivacAuthNoEmpleado')) {
         static $cache = [];
         if (array_key_exists($noEmpleado, $cache)) return $cache[$noEmpleado];
         $stmt = $conn->prepare(
-            "SELECT noEmpleado, nombre, correo, departamento
+            "SELECT noEmpleado, nombre, correo, departamento, region, jefe
              FROM mess_rrhh.usuarios WHERE noEmpleado = ? LIMIT 1"
         );
         if (!$stmt) return $cache[$noEmpleado] = null;
@@ -150,5 +160,80 @@ if (!function_exists('sivacAuthNoEmpleado')) {
         $row = $stmt->get_result()->fetch_assoc();
         $stmt->close();
         return $cache[$noEmpleado] = ($row ?: null);
+    }
+
+    /**
+     * Región (id de mess_rrhh.region) del empleado, o null si no tiene.
+     * Se usa como snapshot al crear la vacante: si el empleado cambia de región
+     * después, el histórico de la vacante no se altera.
+     */
+    function obtenerRegionEmpleado(mysqli $conn, int $noEmpleado): ?int {
+        $emp = obtenerDatosEmpleado($conn, $noEmpleado);
+        $r = isset($emp['region']) ? (int)$emp['region'] : 0;
+        return $r > 0 ? $r : null;
+    }
+
+    /**
+     * Subordinados directos ACTIVOS de un empleado (arreglo de noEmpleado).
+     *
+     * mess_rrhh.usuarios.jefe es VARCHAR(11) latin1 y guarda el noEmpleado del
+     * jefe; al compararlo contra un INT, MySQL castea la cadena a número, así que
+     * la comparación es numérica y no interviene ninguna collation. La tabla es
+     * chica (~250 filas), el escaneo es irrelevante.
+     */
+    function sivacSubordinados(mysqli $conn, int $noEmpleado): array {
+        static $cache = [];
+        if (isset($cache[$noEmpleado])) return $cache[$noEmpleado];
+        $stmt = $conn->prepare(
+            "SELECT noEmpleado FROM mess_rrhh.usuarios
+             WHERE jefe = ? AND estatus = 1 AND noEmpleado <> ?"
+        );
+        if (!$stmt) return $cache[$noEmpleado] = [];
+        $stmt->bind_param('ii', $noEmpleado, $noEmpleado);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        $out = [];
+        while ($r = $res->fetch_assoc()) $out[] = (int)$r['noEmpleado'];
+        $stmt->close();
+        return $cache[$noEmpleado] = $out;
+    }
+
+    /** ¿El empleado tiene equipo a cargo? (definición funcional de jefe/gerente). */
+    function esJefe(mysqli $conn, int $noEmpleado): bool {
+        return count(sivacSubordinados($conn, $noEmpleado)) > 0;
+    }
+
+    /**
+     * Alcance de vacantes de un jefe: las que solicitó él mismo más las de sus
+     * subordinados directos. Devuelve siempre al menos [$noEmpleado], de modo que
+     * quien no tiene equipo solo se ve a sí mismo (nunca un alcance vacío, que en
+     * un IN (...) dejaría pasar todo o reventaría la consulta).
+     */
+    function sivacAlcanceVacantes(mysqli $conn, int $noEmpleado): array {
+        return array_values(array_unique(
+            array_merge([$noEmpleado], sivacSubordinados($conn, $noEmpleado))
+        ));
+    }
+
+    /** ¿Puede ver el dashboard? RRHH (todo) o un jefe (solo su equipo). */
+    function tieneDashboard(mysqli $conn, int $noEmpleado): bool {
+        return esRRHH($conn, $noEmpleado) || esJefe($conn, $noEmpleado);
+    }
+
+    /** Dashboard requerido (PÁGINAS): rebota al portal si no es RRHH ni jefe. */
+    function requiereDashboardPage(mysqli $conn, int $noEmpleado): void {
+        if (!tieneDashboard($conn, $noEmpleado)) {
+            header('Location: ../loginMaster/inicio.php');
+            exit;
+        }
+    }
+
+    /**
+     * ¿Puede levantar una requisición de vacante? Cualquier jefe con equipo.
+     * RRHH también, pero por su vía normal (acciones_vacantes.php), que no pasa
+     * por VoBo.
+     */
+    function puedeSolicitarVacante(mysqli $conn, int $noEmpleado): bool {
+        return esJefe($conn, $noEmpleado) || esRRHH($conn, $noEmpleado);
     }
 }

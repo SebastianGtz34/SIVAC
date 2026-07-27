@@ -10,6 +10,7 @@ require_once 'auth.php';
 require_once 'includes/archivos.php';
 require_once 'includes/flujo.php';
 require_once 'includes/notificaciones.php';
+require_once 'includes/accesos.php';
 
 if (sivacPostDesbordado()) {
     echo json_encode(['success' => false, 'message' => 'El archivo excede el tamaño máximo permitido por el servidor.']);
@@ -28,8 +29,9 @@ function responder(bool $success, string $message = '', array $extra = []): void
 
 function ctxCandidato(mysqli $conn, int $id): ?array {
     $stmt = $conn->prepare(
-        "SELECT c.id, c.nombre, c.correo, c.estatus,
-                v.id AS id_vacante, v.folio, v.puesto, v.no_empleado_solicitante
+        "SELECT c.id, TRIM(CONCAT_WS(' ', c.nombre, NULLIF(c.apellidos,''))) AS nombre,
+                c.correo, c.estatus, c.psicometrico_fecha, c.psicometrico_resultado,
+                v.id AS id_vacante, v.folio, v.puesto, v.tipo, v.no_empleado_solicitante
          FROM candidatos c INNER JOIN vacantes v ON v.id = c.id_vacante
          WHERE c.id = ? LIMIT 1"
     );
@@ -40,11 +42,22 @@ function ctxCandidato(mysqli $conn, int $id): ?array {
     return $row ?: null;
 }
 
+/**
+ * ¿El candidato tiene el psicométrico registrado? Se exige sólo su EXISTENCIA
+ * (fecha + resultado) para salir de 'entrevistado' hacia propuesta/documentación.
+ * El veredicto no bloquea: un 'no_apto' registrado también pasa (el psicométrico
+ * sigue siendo informativo; sólo su captura es obligatoria). Espera el arreglo de
+ * ctxCandidato(), que ya trae psicometrico_fecha y psicometrico_resultado.
+ */
+function psicometricoRegistrado(array $c): bool {
+    return !empty($c['psicometrico_fecha']) && trim((string)($c['psicometrico_resultado'] ?? '')) !== '';
+}
+
 switch ($accion) {
 
     case 'listar': {
         sivacExpirarPropuestas($conn);
-        $sql = "SELECT c.id, c.nombre, c.correo, c.estatus, v.folio, v.puesto,
+        $sql = "SELECT c.id, TRIM(CONCAT_WS(' ', c.nombre, NULLIF(c.apellidos,''))) AS nombre, c.correo, c.estatus, v.folio, v.puesto, v.tipo AS tipo_vacante,
                        (SELECT p.fecha_caducidad FROM propuestas p WHERE p.id_candidato = c.id AND p.estatus = 'enviada' ORDER BY p.id DESC LIMIT 1) AS caducidad,
                        ct.fecha_ingreso, ct.fecha_limite_documentos, ct.prorrogas, ct.reglamento_enviado, ct.estatus AS contr_estatus
                 FROM candidatos c
@@ -54,7 +67,12 @@ switch ($accion) {
                 ORDER BY FIELD(c.estatus,'propuesta_enviada','entrevistado','propuesta_expirada','propuesta_aceptada','documentacion','contratado'), c.id DESC";
         $res = $conn->query($sql);
         $data = [];
-        while ($r = $res->fetch_assoc()) $data[] = $r;
+        while ($r = $res->fetch_assoc()) {
+            // Prácticas no lleva propuesta económica: la UI debe ofrecerle
+            // "pasar a documentación" en vez del formulario de propuesta.
+            $r['requiere_propuesta'] = sivacRequierePropuesta($r['tipo_vacante']) ? 1 : 0;
+            $data[] = $r;
+        }
         responder(true, '', ['data' => $data]);
     }
 
@@ -75,8 +93,18 @@ switch ($accion) {
 
         $c = ctxCandidato($conn, $id);
         if (!$c) responder(false, 'Candidato no encontrado.');
+        // Se corta ANTES de insertar: la rama de prácticas no tiene la
+        // transición entrevistado → propuesta_enviada, así que sin esto la
+        // propuesta quedaría guardada y huérfana cuando el flujo la rechazara.
+        if (!sivacRequierePropuesta($c['tipo'])) {
+            responder(false, 'Las vacantes de prácticas no llevan propuesta económica; pasa al candidato directo a documentación.');
+        }
         if (!in_array($c['estatus'], ['entrevistado', 'propuesta_expirada'], true)) {
             responder(false, 'El candidato no está listo para recibir una propuesta.');
+        }
+        // El psicométrico debe estar registrado antes de pasar a propuesta.
+        if (!psicometricoRegistrado($c)) {
+            responder(false, 'Registra el psicométrico del candidato (fecha y resultado) antes de enviar la propuesta.');
         }
 
         $fechaCad = date('Y-m-d', $tc);
@@ -87,7 +115,7 @@ switch ($accion) {
         $stmt->bind_param('issi', $id, $condiciones, $fechaCad, $noEmp);
         $stmt->execute(); $stmt->close();
 
-        $r = cambiarestatusCandidato($conn, $id, 'propuesta_enviada', $noEmp, 'Propuesta enviada (caduca ' . $fechaCad . ').');
+        $r = cambiarEstatusCandidato($conn, $id, 'propuesta_enviada', $noEmp, 'Propuesta enviada (caduca ' . $fechaCad . ').');
         if (!$r['ok']) responder(false, $r['message']);
 
         $cuerpo = 'Hola ' . htmlspecialchars($c['nombre']) . ',<br><br>Nos complace enviarte una propuesta para la vacante <strong>'
@@ -129,10 +157,10 @@ switch ($accion) {
             $updP->bind_param('i', $idProp);
             $updP->execute();
             $updP->close();
-            $r = cambiarestatusCandidato($conn, $id, 'propuesta_aceptada', $noEmp, 'Propuesta aceptada por el candidato.');
+            $r = cambiarEstatusCandidato($conn, $id, 'propuesta_aceptada', $noEmp, 'Propuesta aceptada por el candidato.');
             if (!$r['ok']) responder(false, $r['message']);
             // Avance automático a documentación + creación de la contratación.
-            cambiarestatusCandidato($conn, $id, 'documentacion', $noEmp, 'Inicia proceso de documentación.');
+            cambiarEstatusCandidato($conn, $id, 'documentacion', $noEmp, 'Inicia proceso de documentación.');
             $limite = date('Y-m-d', strtotime('+15 days'));
             $stmt = $conn->prepare("INSERT IGNORE INTO contrataciones (id_candidato, fecha_limite_documentos) VALUES (?, ?)");
             $stmt->bind_param('is', $id, $limite);
@@ -143,7 +171,7 @@ switch ($accion) {
             $updP->bind_param('i', $idProp);
             $updP->execute();
             $updP->close();
-            $r = cambiarestatusCandidato($conn, $id, 'descartado', $noEmp, 'Propuesta rechazada por el candidato.');
+            $r = cambiarEstatusCandidato($conn, $id, 'descartado', $noEmp, 'Propuesta rechazada por el candidato.');
             if (!$r['ok']) responder(false, $r['message']);
             $etapa = 'propuesta';
             $stmt = $conn->prepare("UPDATE candidatos SET etapa_descarte = ?, motivo_descarte = 'Rechazó la propuesta' WHERE id = ?");
@@ -154,51 +182,130 @@ switch ($accion) {
         responder(false, 'Respuesta inválida.');
     }
 
+    case 'iniciar_documentacion': {
+        // Atajo del flujo de prácticas: entrevistado → documentación, sin
+        // propuesta económica de por medio. Es el equivalente a lo que
+        // 'responder_propuesta' hace para una vacante estándar cuando el candidato acepta.
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id <= 0) responder(false, 'Id inválido.');
+        $c = ctxCandidato($conn, $id);
+        if (!$c) responder(false, 'Candidato no encontrado.');
+        if (sivacRequierePropuesta($c['tipo'])) {
+            responder(false, 'Esta vacante lleva propuesta económica: envíala en vez de saltar a documentación.');
+        }
+        if ($c['estatus'] !== 'entrevistado') {
+            responder(false, 'El candidato debe estar entrevistado para pasar a documentación.');
+        }
+        // El psicométrico debe estar registrado antes de pasar a documentación.
+        if (!psicometricoRegistrado($c)) {
+            responder(false, 'Registra el psicométrico del candidato (fecha y resultado) antes de pasar a documentación.');
+        }
+
+        $r = cambiarEstatusCandidato($conn, $id, 'documentacion', $noEmp, 'Candidato de prácticas aceptado; inicia documentación.');
+        if (!$r['ok']) responder(false, $r['message']);
+
+        $limite = date('Y-m-d', strtotime('+15 days'));
+        $stmt = $conn->prepare("INSERT IGNORE INTO contrataciones (id_candidato, fecha_limite_documentos) VALUES (?, ?)");
+        $stmt->bind_param('is', $id, $limite);
+        $stmt->execute(); $stmt->close();
+
+        responder(true, 'Candidato en documentación.');
+    }
+
     case 'expirar_propuestas': {
         $n = sivacExpirarPropuestas($conn);
         responder(true, $n . ' propuesta(s) expirada(s).');
     }
 
-    case 'subir_documento': {
-        $id     = (int)($_POST['id'] ?? 0);
-        $idTipo = (int)($_POST['id_tipo'] ?? 0);
-        if ($id <= 0 || $idTipo <= 0) responder(false, 'Parámetros inválidos.');
+    // NOTA: RRHH ya NO sube documentos. Los sube el candidato desde su portal
+    // (acciones_portal.php, origen='candidato'); aquí RRHH sólo los ve y valida.
+
+    case 'generar_enlace_portal': {
+        // Genera (o regenera) el enlace del portal del candidato para copiarlo y
+        // compartirlo. Con el correo apagado en pruebas, es la vía de entrega.
+        // Regenerar invalida el enlace anterior. El token en claro se devuelve una
+        // sola vez (en la BD sólo queda su hash).
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id <= 0) responder(false, 'Id inválido.');
         $c = ctxCandidato($conn, $id);
         if (!$c) responder(false, 'Candidato no encontrado.');
         if ($c['estatus'] !== 'documentacion') responder(false, 'El candidato no está en documentación.');
 
-        // Tipo activo
-        $stmt = $conn->prepare("SELECT 1 FROM documentos_tipos WHERE id = ? AND estatus = 1 LIMIT 1");
-        $stmt->bind_param('i', $idTipo); $stmt->execute();
-        $tipoOk = $stmt->get_result()->num_rows > 0; $stmt->close();
-        if (!$tipoOk) responder(false, 'Tipo de documento inválido.');
-
-        if (empty($_FILES['documento'])) responder(false, 'Adjunta el documento.');
-        $doc = sivacGuardarArchivo($_FILES['documento'], ['pdf', 'jpg', 'jpeg', 'png'], SIVAC_MAX_DOC, SIVAC_DIR_DOC);
-        if (!$doc['ok']) responder(false, $doc['message']);
-
-        $stmt = $conn->prepare(
-            "INSERT INTO documentos (id_candidato, id_tipo, nombre_archivo, nombre_original, mime, tamano, subido_por)
-             VALUES (?, ?, ?, ?, ?, ?, ?)"
-        );
-        $stmt->bind_param('iisssii', $id, $idTipo, $doc['nombre'], $doc['original'], $doc['mime'], $doc['tamano'], $noEmp);
-        $ok = $stmt->execute(); $idDoc = (int)$conn->insert_id; $stmt->close();
-        if (!$ok) { @unlink(SIVAC_DIR_DOC . $doc['nombre']); responder(false, 'No se pudo guardar el documento.'); }
-        responder(true, 'Documento subido.', ['id' => $idDoc]);
+        $token = sivacGenerarAcceso($conn, $id, $noEmp);
+        $url   = sivacUrlPortal($token);
+        responder(true, 'Enlace generado (vigencia 15 días). Regenerarlo invalida el anterior.', ['url' => $url]);
     }
 
-    case 'eliminar_documento': {
-        $idDoc = (int)($_POST['id_documento'] ?? 0);
+    case 'validar_documento': {
+        // Revisión de RRHH sobre un documento subido: validar o rechazar (con motivo).
+        // Al resolverse se avisa al candidato por correo (punto 12).
+        $idDoc    = (int)($_POST['id_documento'] ?? 0);
+        $decision = $_POST['decision'] ?? '';   // 'validar' | 'rechazar'
+        $motivo   = trim($_POST['motivo'] ?? '');
         if ($idDoc <= 0) responder(false, 'Id inválido.');
-        $stmt = $conn->prepare("SELECT nombre_archivo FROM documentos WHERE id = ? LIMIT 1");
+        if (!in_array($decision, ['validar', 'rechazar'], true)) responder(false, 'Decisión inválida.');
+        if ($decision === 'rechazar' && $motivo === '') responder(false, 'Indica el motivo del rechazo.');
+
+        // Documento + su tipo + candidato: para nombrar el documento y avisar al
+        // candidato (antes esta acción sólo hacía SELECT 1, sin contexto).
+        $stmt = $conn->prepare(
+            "SELECT d.id_candidato, t.nombre AS doc_tipo
+             FROM documentos d INNER JOIN documentos_tipos t ON t.id = d.id_tipo
+             WHERE d.id = ? LIMIT 1"
+        );
         $stmt->bind_param('i', $idDoc); $stmt->execute();
-        $row = $stmt->get_result()->fetch_assoc(); $stmt->close();
-        if (!$row) responder(false, 'Documento no encontrado.');
-        $stmt = $conn->prepare("DELETE FROM documentos WHERE id = ?");
-        $stmt->bind_param('i', $idDoc); $ok = $stmt->execute(); $stmt->close();
-        if ($ok) @unlink(SIVAC_DIR_DOC . basename($row['nombre_archivo']));
-        responder($ok, $ok ? 'Documento eliminado.' : 'No se pudo eliminar.');
+        $doc = $stmt->get_result()->fetch_assoc(); $stmt->close();
+        if (!$doc) responder(false, 'Documento no encontrado.');
+
+        if ($decision === 'validar') {
+            $stmt = $conn->prepare(
+                "UPDATE documentos SET validacion = 'validado', validado_por = ?, validado_fecha = NOW(), motivo_validacion = NULL WHERE id = ?"
+            );
+            $stmt->bind_param('ii', $noEmp, $idDoc);
+        } else {
+            $stmt = $conn->prepare(
+                "UPDATE documentos SET validacion = 'rechazado', validado_por = ?, validado_fecha = NOW(), motivo_validacion = ? WHERE id = ?"
+            );
+            $stmt->bind_param('isi', $noEmp, $motivo, $idDoc);
+        }
+        $ok = $stmt->execute(); $stmt->close();
+        if (!$ok) responder(false, 'No se pudo actualizar el documento.');
+
+        // Aviso al candidato (sin campana: no es empleado interno). El envío respeta
+        // el switch global de correo; apagado, sólo queda la bitácora en notificaciones.
+        $c = ctxCandidato($conn, (int)$doc['id_candidato']);
+        if ($c && $c['correo']) {
+            if ($decision === 'validar') {
+                notificarEvento($conn, 'documento_validado', [
+                    'id_candidato' => (int)$doc['id_candidato'], 'id_vacante' => (int)$c['id_vacante'],
+                    'titulo' => 'Documento validado — ' . $doc['doc_tipo'],
+                    'correos' => [$c['correo']],
+                    'correo_asunto' => 'SIVAC — Documento validado (' . $c['folio'] . ')',
+                    'correo_titulo' => 'Documento validado',
+                    'correo_html' => 'Hola ' . htmlspecialchars($c['nombre']) . ',<br><br>Tu documento <strong>'
+                        . htmlspecialchars($doc['doc_tipo']) . '</strong> fue <strong>validado</strong>.',
+                ]);
+            } else {
+                notificarEvento($conn, 'documento_rechazado', [
+                    'id_candidato' => (int)$doc['id_candidato'], 'id_vacante' => (int)$c['id_vacante'],
+                    'titulo' => 'Documento rechazado — ' . $doc['doc_tipo'],
+                    'correos' => [$c['correo']],
+                    'correo_asunto' => 'SIVAC — Documento rechazado (' . $c['folio'] . ')',
+                    'correo_titulo' => 'Documento rechazado',
+                    'correo_html' => 'Hola ' . htmlspecialchars($c['nombre']) . ',<br><br>Tu documento <strong>'
+                        . htmlspecialchars($doc['doc_tipo']) . '</strong> fue <strong>rechazado</strong>.<br><br>'
+                        . '<strong>Motivo:</strong> ' . htmlspecialchars($motivo)
+                        . '<br><br>Vuelve a subirlo corregido desde tu enlace.',
+                ]);
+            }
+        }
+
+        responder(true, $decision === 'validar' ? 'Documento validado.' : 'Documento rechazado.');
     }
+
+    // NOTA: RRHH ya NO elimina documentos (sólo ve y valida). Un documento
+    // incorrecto se maneja con 'validar_documento' → rechazar (con motivo), y el
+    // candidato lo vuelve a subir desde su portal.
 
     case 'registrar_fecha_ingreso': {
         $id    = (int)($_POST['id'] ?? 0);
@@ -280,30 +387,60 @@ switch ($accion) {
         if (!$ct || !$ct['fecha_ingreso']) responder(false, 'Registra la fecha de ingreso antes de completar el alta.');
         if (!$ct['reglamento_enviado']) responder(false, 'Envía el reglamento de ingreso antes de completar el alta.');
 
+        // Los documentos obligatorios deben estar VALIDADOS por RRHH, no solo subidos.
         $stmt = $conn->prepare(
             "SELECT (SELECT COUNT(*) FROM documentos_tipos WHERE obligatorio = 1 AND estatus = 1) AS req,
                     (SELECT COUNT(DISTINCT d.id_tipo) FROM documentos d
                        INNER JOIN documentos_tipos t ON t.id = d.id_tipo
-                       WHERE d.id_candidato = ? AND t.obligatorio = 1 AND t.estatus = 1) AS subidos"
+                       WHERE d.id_candidato = ? AND t.obligatorio = 1 AND t.estatus = 1
+                         AND d.validacion = 'validado') AS validados"
         );
         $stmt->bind_param('i', $id); $stmt->execute();
         $rc = $stmt->get_result()->fetch_assoc(); $stmt->close();
-        if ((int)$rc['subidos'] < (int)$rc['req']) {
-            responder(false, 'Faltan documentos obligatorios (' . (int)$rc['subidos'] . '/' . (int)$rc['req'] . ').');
+        if ((int)$rc['validados'] < (int)$rc['req']) {
+            responder(false, 'Faltan documentos obligatorios validados (' . (int)$rc['validados'] . '/' . (int)$rc['req'] . ').');
         }
 
-        $r = cambiarestatusCandidato($conn, $id, 'contratado', $noEmp, 'Alta completada. Fecha de ingreso ' . $ct['fecha_ingreso'] . '.');
+        $r = cambiarEstatusCandidato($conn, $id, 'contratado', $noEmp, 'Alta completada. Fecha de ingreso ' . $ct['fecha_ingreso'] . '.');
         if (!$r['ok']) responder(false, $r['message']);
         $updCt = $conn->prepare("UPDATE contrataciones SET estatus = 'completada', alta_notificada = NOW() WHERE id_candidato = ?");
         $updCt->bind_param('i', $id);
         $updCt->execute();
         $updCt->close();
-        // Cierra la vacante (asumiendo 1 posición).
+        // Cierra la vacante SÓLO si ya se cubrieron todas sus posiciones. El
+        // candidato recién quedó 'contratado', así que el conteo lo incluye. Con
+        // posiciones = 1 (default) cierra en el primer contratado, como antes.
         $idVac = (int)$c['id_vacante'];
-        $updV = $conn->prepare("UPDATE vacantes SET estatus = 'cerrada', fecha_cierre = NOW() WHERE id = ? AND estatus IN ('abierta','en_proceso')");
-        $updV->bind_param('i', $idVac);
-        $updV->execute();
-        $updV->close();
+        $stmt = $conn->prepare(
+            "SELECT v.posiciones,
+                    (SELECT COUNT(*) FROM candidatos c WHERE c.id_vacante = v.id AND c.estatus = 'contratado') AS contratados
+             FROM vacantes v WHERE v.id = ? LIMIT 1"
+        );
+        $stmt->bind_param('i', $idVac);
+        $stmt->execute();
+        $vc = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if ($vc && (int)$vc['contratados'] >= (int)$vc['posiciones']) {
+            $updV = $conn->prepare("UPDATE vacantes SET estatus = 'cerrada', fecha_cierre = NOW() WHERE id = ? AND estatus IN ('abierta','en_proceso')");
+            $updV->bind_param('i', $idVac);
+            $updV->execute();
+            $updV->close();
+        }
+
+        // Marca al candidato como LISTO PARA ALTA en gestionPersonal. SIVAC nunca
+        // escribe en mess_rrhh: sólo levanta la bandera y gestionPersonal jala los
+        // datos (curp/rfc/nss/… que tecleó el candidato) desde mess_sivac.
+        $updDa = $conn->prepare(
+            "INSERT INTO candidatos_datos_alta (id_candidato, listo_para_alta, fecha_listo)
+             VALUES (?, 1, NOW())
+             ON DUPLICATE KEY UPDATE listo_para_alta = 1, fecha_listo = NOW()"
+        );
+        $updDa->bind_param('i', $id);
+        $updDa->execute();
+        $updDa->close();
+
+        // El expediente quedó cerrado: se invalidan los enlaces del portal.
+        sivacRevocarAccesos($conn, $id);
 
         // Avisos a las áreas del catálogo (TI, viáticos, teléfono, marketing) + solicitante.
         $res = $conn->query("SELECT area, correo FROM notificaciones_destinatarios WHERE activo = 1");
