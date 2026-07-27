@@ -97,6 +97,27 @@ switch ($accion) {
         $stmt->close();
         if (!$ok) responder(false, 'No se pudo registrar la requisición.');
 
+        // Avisa a TODO RRHH: la requisición está parada hasta que alguien le dé
+        // VoBo y todavía no tiene dueño, así que no hay a quién dirigirla.
+        $rrhh = sivacEmpleadosRRHH($conn);
+        $jefe = obtenerDatosEmpleado($conn, $noEmp);
+        $nombreJefe = $jefe['nombre'] ?? ('Empleado #' . $noEmp);
+        notificarEvento($conn, 'requisicion_pendiente', [
+            'destinos_no_empleado' => array_column($rrhh, 'noEmpleado'),
+            'id_vacante' => $idVac,
+            'titulo'  => 'Requisición pendiente de VoBo — ' . $folio,
+            'mensaje' => $puesto . ' · la levantó ' . $nombreJefe,
+            'url'     => 'vacantes.php',
+            'correos' => array_values(array_filter(array_column($rrhh, 'correo'))),
+            'correo_asunto' => 'SIVAC — Requisición pendiente de visto bueno (' . $folio . ')',
+            'correo_titulo' => 'Requisición pendiente de VoBo',
+            'correo_html' => '<strong>' . htmlspecialchars($nombreJefe) . '</strong> levantó una requisición de <strong>'
+                . htmlspecialchars($puesto) . '</strong> (' . htmlspecialchars($folio) . ', '
+                . (int)$posiciones . ' posición(es), ' . htmlspecialchars($tipo) . ').<br><br>'
+                . '<strong>Justificación:</strong> ' . nl2br(htmlspecialchars($justificacion))
+                . '<br><br>Queda pendiente del visto bueno de RRHH para poder abrirse.',
+        ]);
+
         responder(true, 'Requisición enviada (' . $folio . '). Queda pendiente del visto bueno de RRHH.',
                   ['id' => $idVac, 'folio' => $folio]);
     }
@@ -188,7 +209,7 @@ switch ($accion) {
 
         // Notifica a RRHH (creador de la vacante).
         $stmt = $conn->prepare(
-            "SELECT TRIM(CONCAT_WS(' ', c.nombre, NULLIF(c.apellidos,''))) AS nombre, v.folio, v.puesto, v.tipo, v.creador_por AS no_empleado_creador, v.id AS id_vacante
+            "SELECT TRIM(CONCAT_WS(' ', c.nombre, NULLIF(c.apellidos,''))) AS nombre, v.folio, v.puesto, v.tipo, c.creador_por AS no_empleado_creador, v.id AS id_vacante
              FROM candidatos c INNER JOIN vacantes v ON v.id = c.id_vacante WHERE c.id = ? LIMIT 1"
         );
         $stmt->bind_param('i', $id); $stmt->execute();
@@ -196,20 +217,24 @@ switch ($accion) {
         if ($info) {
             $rrhh = obtenerDatosEmpleado($conn, (int)$info['no_empleado_creador']);
             // El jefe ya propuso las dos fechas; el siguiente paso de RRHH es
-            // confirmar cuál eligió el candidato.
-            $siguiente = 'confirmar la fecha de la entrevista con el jefe';
-            notificarEvento($conn, 'cv_aprobado', [
+            // confirmar cuál eligió el candidato. Las fechas van EN el aviso: es lo
+            // que RRHH necesita para avisarle al candidato, sin abrir la ficha.
+            $fmt1 = date('d/m/Y H:i', $t1); $fmt2 = date('d/m/Y H:i', $t2);
+            $siguiente = 'confirmar cuál de las dos fechas eligió el candidato';
+            notificarEvento($conn, 'entrevista_disponibilidad', [
                 'destino_no_empleado' => (int)$info['no_empleado_creador'],
                 'id_candidato' => $id, 'id_vacante' => (int)$info['id_vacante'],
-                'titulo' => 'CV aprobado — ' . $info['nombre'],
-                'mensaje' => $info['folio'] . ' · ' . $info['puesto'] . ': ' . $siguiente . '.',
+                'titulo' => 'CV aprobado con fechas de entrevista — ' . $info['nombre'],
+                'mensaje' => $info['folio'] . ' · ' . $fmt1 . ' o ' . $fmt2 . '; ' . $siguiente,
                 'url' => 'candidatos.php',
                 'correos' => $rrhh && $rrhh['correo'] ? [$rrhh['correo']] : [],
                 'correo_asunto' => 'SIVAC — CV aprobado por el solicitante (' . $info['folio'] . ')',
                 'correo_titulo' => 'CV aprobado',
                 'correo_html' => 'El solicitante aprobó el CV de <strong>' . htmlspecialchars($info['nombre'])
                     . '</strong> para la vacante <strong>' . htmlspecialchars($info['puesto'])
-                    . '</strong> y registró su disponibilidad para entrevista.'
+                    . '</strong> y registró estas dos fechas para la entrevista:<br><br>'
+                    . '<strong>Opción 1:</strong> ' . $fmt1 . '<br>'
+                    . '<strong>Opción 2:</strong> ' . $fmt2
                     . ($notas !== '' ? '<br><br><strong>Comentarios del solicitante:</strong> ' . htmlspecialchars($notas) : '')
                     . '<br><br>Siguiente paso: ' . $siguiente . '.',
             ]);
@@ -238,7 +263,7 @@ switch ($accion) {
 
         // Notifica a RRHH.
         $stmt = $conn->prepare(
-            "SELECT TRIM(CONCAT_WS(' ', c.nombre, NULLIF(c.apellidos,''))) AS nombre, v.folio, v.creador_por AS no_empleado_creador, v.id AS id_vacante
+            "SELECT TRIM(CONCAT_WS(' ', c.nombre, NULLIF(c.apellidos,''))) AS nombre, v.folio, c.creador_por AS no_empleado_creador, v.id AS id_vacante
              FROM candidatos c INNER JOIN vacantes v ON v.id = c.id_vacante WHERE c.id = ? LIMIT 1"
         );
         $stmt->bind_param('i', $id); $stmt->execute();
@@ -274,7 +299,7 @@ switch ($accion) {
 
         // estatus + datos de la vacante (para avisar a RRHH del resultado).
         $stmt = $conn->prepare(
-            "SELECT c.estatus, TRIM(CONCAT_WS(' ', c.nombre, NULLIF(c.apellidos,''))) AS nombre, v.folio, v.puesto, v.creador_por AS no_empleado_creador, v.id AS id_vacante
+            "SELECT c.estatus, TRIM(CONCAT_WS(' ', c.nombre, NULLIF(c.apellidos,''))) AS nombre, v.folio, v.puesto, c.creador_por AS no_empleado_creador, v.id AS id_vacante
              FROM candidatos c INNER JOIN vacantes v ON v.id = c.id_vacante WHERE c.id = ? LIMIT 1"
         );
         $stmt->bind_param('i', $id); $stmt->execute();

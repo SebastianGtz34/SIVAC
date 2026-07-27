@@ -79,13 +79,87 @@ cambio de esquema habrá que aplicarlo a mano con `ALTER`.
   propios para que un despliegue no deje al usuario con el JS viejo en caché.
 - `includes/archivos.php` — validación de subidas por **firma de bytes**
   (PDF/JPG/PNG), límites (CV 5 MB, docs 10 MB), detección de overflow de POST.
+- `includes/datos_alta.php` — catálogo, validación y UPSERT de
+  `candidatos_datos_alta` (CURP/RFC/NSS/sexo/nacimiento/tipo de sangre).
+  Compartido por las **dos** superficies que escriben esa fila: el portal del
+  candidato y el cierre de RRHH.
 - `includes/correo.php` / `includes/notificaciones.php` — correo con plantilla
-  MESS + campana in-system + bitácora (`notificaciones.correo_enviado/error`).
-  Un fallo de SMTP nunca aborta la operación de negocio.
+  MESS + **campana del portal** (ver abajo) + bitácora
+  (`notificaciones.correo_enviado/error`). Un fallo de SMTP nunca aborta la
+  operación de negocio.
+- `validaLoginNot.php` — endpoint que llama loginMaster al hacer clic en una
+  notificación de SIVAC; responde a qué pantalla ir (lista blanca de `archivo`).
 - `descargar.php` — único punto de descarga (sesión + permiso por recurso);
   `uploads/` está bloqueado por `.htaccess`.
 - `acciones_*.php` — endpoints JSON `{success, message, ...}` con `exit` por rama.
 - `embed_*.php` — vistas slim para iframes de loginMaster.
+
+## Notificaciones: la campana es la del portal
+SIVAC **no tiene campana propia**. Como ticketsBI, entradasEq, vacaciones,
+incidencias y planeación, escribe en **`mess_rrhh.notificacion_historial`** con
+`sistema = 'sivac'`, que es justo lo que lee el badge de loginMaster. La campana
+del topbar de SIVAC lee esa **misma** tabla filtrada por `sistema`, así que los
+dos badges muestran lo mismo y marcar leída en uno la marca en el otro.
+
+| columna | qué guarda SIVAC |
+|---|---|
+| `id_usuario_actualiza` / `id_usuario_destino` | quién lo provocó / quién se entera (nunca uno mismo) |
+| `accion` | el evento en CamelCase (`alta_completada` → `AltaCompletada`) |
+| `sistema` | siempre `sivac` |
+| `archivo` | pantalla destino, de la lista blanca `sivacNotifArchivos()` |
+| `id_registro_referencia` | id del candidato (o de la vacante) |
+| `recordar` | el texto que se ve en el toast |
+| `estatus` | `NoLeida` / `Leida` |
+
+El `archivo` depende de **quién recibe**: RRHH abre las pantallas internas
+(`candidatos`, `contrataciones`…); el solicitante —un jefe que no es de RRHH—
+siempre va a `embed_solicitante`, porque cualquier otra lo rebotaría
+`requiereRRHHPage()`. Al hacer clic, loginMaster llama a
+`SIVAC/validaLoginNot.php` (mismo contrato que `Tickets/validaLoginNot.php`) y
+redirige a la URL que ese endpoint devuelve.
+
+`mess_sivac.notificaciones` se conserva, pero ya sólo como **bitácora del correo**
+y de los avisos a externos (el candidato no tiene `noEmpleado`, así que no cabe
+en la campana del portal).
+
+### Quién se entera de qué
+| Cuándo | Quién recibe | Pantalla |
+|---|---|---|
+| El jefe levanta una requisición | **todo RRHH** (aún no tiene dueño) | `vacantes` |
+| RRHH da o niega el VoBo | el jefe que la levantó (con el motivo) | `embed_solicitante` |
+| RRHH le asigna candidatos | el solicitante, uno por candidato | `embed_solicitante` |
+| El jefe aprueba el CV y da sus 2 fechas | RRHH que registró al candidato | `candidatos` |
+| El jefe descarta el CV | RRHH que registró al candidato | `candidatos` |
+| RRHH confirma la fecha que eligió el candidato | el solicitante | `embed_solicitante` |
+| El jefe registra el resultado de su entrevista | RRHH que registró al candidato | `candidatos` |
+| RRHH registra la respuesta a la propuesta | el solicitante (aceptó / rechazó) | `contrataciones` |
+| El candidato sube documentos o completa sus datos | RRHH que lo registró | `contrataciones` |
+| Se completa el alta | el solicitante | `contrataciones` |
+
+**Ojo con el dueño de RRHH:** es `candidatos.creador_por` (quien registró al
+candidato), **no** `vacantes.creador_por` — en una requisición levantada por un
+jefe ese campo es el jefe, así que los avisos «para RRHH» se los mandaba a él
+mismo y se perdían (se corrigió el 2026-07-27).
+
+### Lo que hace el candidato también avisa
+El portal del candidato notifica a **quien lo registró** (`candidatos.creador_por`,
+siempre RRHH: el endpoint que da de alta candidatos es RRHH-gated):
+
+- `DocumentosRecibidos` — subió documentación por revisar.
+- `DatosAltaCompletos` — terminó de capturar CURP/RFC/NSS/sexo/nacimiento. Los
+  guardados parciales **no** avisan: sólo el momento en que ya se puede cerrar
+  el alta.
+
+Van **con `dedup`** (no se repite mientras el destinatario tenga una sin leer del
+mismo evento y candidato): subir ocho documentos deja un aviso, no ocho. Y van
+**sin correo**: son avisos de trabajo, no trámite. Como el que actúa no es un
+empleado, la fila queda con `id_usuario_actualiza = 0` y el texto se basta solo.
+
+> **Del lado de loginMaster** hay que tener aplicados los 3 cambios de
+> `funcionesGlobales.js`: la entrada `sivac` en `endpointsPorSistema`, el ícono
+> (`fa-user-tie`) y el caso de redirección directa. Ese archivo **no vive en este
+> repo**: si se despliega SIVAC sin él, las notificaciones aparecen pero el clic
+> no lleva a ningún lado.
 
 ## Ciclo de vida de la vacante
 ```
@@ -132,8 +206,21 @@ candidato al jefe.
 Reglas duras (backend): no se envía candidato al jefe sin CV **ni sin la
 constancia de la entrevista de RRHH**; agendar exige 2 fechas futuras distintas;
 completar alta exige fecha de ingreso + reglamento enviado + documentos
-obligatorios **validados** por RRHH; las propuestas vencidas expiran
-automáticamente (lazy) al cargar cierre/dashboard.
+obligatorios **validados** por RRHH **+ los datos del alta completos**; las
+propuestas vencidas expiran automáticamente (lazy) al cargar cierre/dashboard.
+
+### Datos del alta (lo que jala gestionPersonal)
+`candidatos_datos_alta` guarda CURP, RFC, NSS, sexo, fecha de nacimiento y tipo
+de sangre. Los captura el **candidato** en su portal y RRHH los ve y corrige en
+el modal de documentación («Datos para el alta»): son dos superficies escribiendo
+la misma fila, por eso la validación vive una sola vez en
+`includes/datos_alta.php`. `completar_alta` se niega mientras falte alguno de los
+cinco primeros — sin ellos la fila que jala gestionPersonal llega vacía y el alta
+habría que teclearla a mano allá.
+
+El **tipo de sangre** usa el catálogo de gestionPersonal (`ARH+`, `ORH-`, …), no
+la notación clínica (`A+`, `O-`): el valor se copia tal cual a
+`mess_rrhh.usuarios.tipoSangre`.
 
 **El `tipo` de la vacante no se puede cambiar si ya hay candidatos avanzados**
 (cualquiera fuera de `aspirante`): mover la rama bajo los pies de un proceso vivo

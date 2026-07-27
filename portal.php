@@ -10,6 +10,7 @@
 require_once 'conn.php';
 require_once 'includes/accesos.php';
 require_once 'includes/assets.php';
+require_once 'includes/datos_alta.php';
 
 $token  = $_GET['t'] ?? '';
 $acceso = sivacResolverAcceso($conn, (string)$token);
@@ -51,15 +52,10 @@ if ($valido) {
     }
     $stmt->close();
 
-    // Datos fiscales ya capturados (para precargar el formulario).
-    $stmt = $conn->prepare(
-        "SELECT curp, rfc, nss, sexo, fecha_nacimiento, tipo_sangre FROM candidatos_datos_alta WHERE id_candidato = ? LIMIT 1"
-    );
-    $stmt->bind_param('i', $idCandidato);
-    $stmt->execute();
-    $datos = $stmt->get_result()->fetch_assoc() ?: [];
-    $stmt->close();
+    // Datos ya capturados (para precargar el formulario).
+    $datos = sivacDatosAlta($conn, $idCandidato);
 }
+$faltanDatos = $valido ? sivacDatosAltaFaltantes($datos) : [];
 
 /** Escape corto para este archivo. */
 function h($s): string { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
@@ -112,33 +108,38 @@ function estadoDoc(?array $doc): string {
         <?php endif; ?>
     </div>
 
-    <!-- ── Datos fiscales ── -->
+    <!-- ── Datos del alta ── -->
     <div class="card mb-4">
         <div class="card-header"><i class="fas fa-id-card mr-2"></i>Tus datos</div>
         <div class="card-body">
             <p class="small text-muted">Captura tus datos tal como aparecen en tus documentos oficiales.
-               Puedes guardarlos aunque aún no subas todos los archivos.</p>
+               Puedes guardarlos aunque aún no subas todos los archivos, pero
+               <strong>no se guardan solos</strong>: usa el botón «Guardar mis datos».</p>
+            <div id="avisoFaltan" class="alert alert-warning py-2 small <?= $faltanDatos ? '' : 'd-none' ?>">
+                <i class="fas fa-exclamation-triangle mr-1"></i>
+                Te falta capturar: <span id="listaFaltan"><?= h(implode(', ', $faltanDatos)) ?></span>.
+            </div>
             <form id="formDatos">
                 <div class="form-row">
                     <div class="form-group col-md-6">
-                        <label>CURP</label>
+                        <label>CURP <span class="text-danger">*</span></label>
                         <input type="text" class="form-control text-uppercase" name="curp" maxlength="18"
                                value="<?= h($datos['curp'] ?? '') ?>" placeholder="18 caracteres">
                     </div>
                     <div class="form-group col-md-6">
-                        <label>RFC</label>
+                        <label>RFC <span class="text-danger">*</span></label>
                         <input type="text" class="form-control text-uppercase" name="rfc" maxlength="13"
                                value="<?= h($datos['rfc'] ?? '') ?>" placeholder="Con homoclave">
                     </div>
                 </div>
                 <div class="form-row">
                     <div class="form-group col-md-4">
-                        <label>NSS</label>
+                        <label>NSS <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" name="nss" maxlength="11"
                                value="<?= h($datos['nss'] ?? '') ?>" placeholder="11 dígitos">
                     </div>
                     <div class="form-group col-md-4">
-                        <label>Sexo</label>
+                        <label>Sexo <span class="text-danger">*</span></label>
                         <select class="form-control" name="sexo">
                             <option value="">—</option>
                             <option value="M" <?= ($datos['sexo'] ?? '') === 'M' ? 'selected' : '' ?>>Masculino</option>
@@ -146,7 +147,7 @@ function estadoDoc(?array $doc): string {
                         </select>
                     </div>
                     <div class="form-group col-md-4">
-                        <label>Fecha de nacimiento</label>
+                        <label>Fecha de nacimiento <span class="text-danger">*</span></label>
                         <input type="date" class="form-control" name="fecha_nacimiento"
                                value="<?= h($datos['fecha_nacimiento'] ?? '') ?>">
                     </div>
@@ -154,8 +155,18 @@ function estadoDoc(?array $doc): string {
                 <div class="form-row">
                     <div class="form-group col-md-4 mb-0">
                         <label>Tipo de sangre</label>
-                        <input type="text" class="form-control text-uppercase" name="tipo_sangre" maxlength="15"
-                               value="<?= h($datos['tipo_sangre'] ?? '') ?>" placeholder="p. ej. O+">
+                        <?php $sangreActual = (string)($datos['tipo_sangre'] ?? ''); ?>
+                        <select class="form-control" name="tipo_sangre">
+                            <option value="">Seleccionar…</option>
+                            <?php // Un valor viejo fuera del catálogo se muestra igual, para no borrarlo
+                                  // sin querer al volver a guardar el formulario.
+                                  if ($sangreActual !== '' && !in_array($sangreActual, sivacTiposSangre(), true)): ?>
+                                <option value="<?= h($sangreActual) ?>" selected><?= h($sangreActual) ?> (fuera de catálogo)</option>
+                            <?php endif; ?>
+                            <?php foreach (sivacTiposSangre() as $ts): ?>
+                                <option value="<?= h($ts) ?>" <?= $sangreActual === $ts ? 'selected' : '' ?>><?= h($ts) ?></option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
                 </div>
                 <div class="text-right mt-3">
@@ -170,18 +181,18 @@ function estadoDoc(?array $doc): string {
         <div class="card-header"><i class="fas fa-folder-open mr-2"></i>Tus documentos</div>
         <div class="card-body">
             <p class="small text-muted">Formatos aceptados: PDF, JPG o PNG (máx. 10 MB). Recursos Humanos
-               los revisará; si alguno se rechaza, verás el motivo y podrás volver a subirlo.</p>
+               los revisará; si alguno se rechaza, verás el motivo y podrás volver a subirlo.
+               Puedes elegir varios archivos y subirlos de una vez con el botón de abajo.</p>
             <?php foreach ($tipos as $t): $doc = $ultimoPorTipo[$t['id']] ?? null; ?>
-                <div class="border rounded p-3 mb-2">
+                <div class="border rounded p-3 mb-2 docFila" data-tipo="<?= (int)$t['id'] ?>">
                     <div class="d-flex justify-content-between align-items-center flex-wrap">
                         <div>
                             <strong><?= h($t['nombre']) ?></strong>
                             <?= $t['obligatorio'] ? '<span class="text-danger">*</span>' : '<span class="text-muted small">(opcional)</span>' ?>
-                            <div class="small text-muted"><?= estadoDoc($doc) ?>
-                                <?php if ($doc): ?> · <?= h($doc['nombre_original']) ?><?php endif; ?></div>
-                            <?php if ($doc && $doc['validacion'] === 'rechazado' && $doc['motivo_validacion']): ?>
-                                <div class="small text-danger"><i class="fas fa-exclamation-circle mr-1"></i><?= h($doc['motivo_validacion']) ?></div>
-                            <?php endif; ?>
+                            <div class="small text-muted"><span class="docEstado"><?= estadoDoc($doc) ?></span><span class="docNombre"><?= $doc ? ' · ' . h($doc['nombre_original']) : '' ?></span></div>
+                            <div class="small text-danger docMotivo <?= ($doc && $doc['validacion'] === 'rechazado' && $doc['motivo_validacion']) ? '' : 'd-none' ?>">
+                                <i class="fas fa-exclamation-circle mr-1"></i><span class="docMotivoTxt"><?= h($doc['motivo_validacion'] ?? '') ?></span>
+                            </div>
                         </div>
                         <form class="formDoc form-inline mt-2" data-tipo="<?= (int)$t['id'] ?>">
                             <input type="file" class="form-control-file mr-2" name="documento" accept=".pdf,.jpg,.jpeg,.png" required>
@@ -190,6 +201,11 @@ function estadoDoc(?array $doc): string {
                     </div>
                 </div>
             <?php endforeach; ?>
+            <div class="text-right mt-3">
+                <button type="button" class="btn btn-primary" id="btnSubirTodos" disabled>
+                    <i class="fas fa-cloud-upload-alt mr-1"></i>Subir seleccionados
+                </button>
+            </div>
         </div>
     </div>
 <?php endif; ?>
@@ -204,32 +220,106 @@ function estadoDoc(?array $doc): string {
 $(function () {
     // El token viaja en cada petición: es la única credencial del portal.
     var TOKEN = <?= json_encode($token) ?>;
+    var datosSucios = false;   // hay cambios tecleados sin guardar
+
+    // ── Datos del candidato ────────────────────────────────────────────────
+    $('#formDatos').on('input change', 'input, select', function () { datosSucios = true; });
 
     $('#formDatos').on('submit', function (e) {
         e.preventDefault();
         var data = $(this).serializeArray();
         data.push({ name: 'accion', value: 'guardar_datos_fiscales' });
         data.push({ name: 't', value: TOKEN });
+        var $btn = $(this).find('button[type=submit]').prop('disabled', true);
         ajaxPost('acciones_portal.php', data, function (err, res) {
-            if (res && res.success) { mostrarToast(res.message, 'success'); }
-            else { mostrarToast((res && res.message) || 'No se pudo guardar.', 'error'); }
+            $btn.prop('disabled', false);
+            if (res && res.success) {
+                datosSucios = false;
+                var faltan = res.faltan || [];
+                $('#avisoFaltan').toggleClass('d-none', faltan.length === 0);
+                $('#listaFaltan').text(faltan.join(', '));
+                mostrarToast(res.message, faltan.length ? 'warning' : 'success');
+            } else { mostrarToast((res && res.message) || 'No se pudo guardar.', 'error'); }
         });
     });
 
-    $('.formDoc').on('submit', function (e) {
-        e.preventDefault();
-        var fd = new FormData(this);
+    // Red de seguridad: cerrar la pestaña con datos tecleados y sin guardar era la
+    // forma más fácil de perderlos (el portal no guarda solo).
+    $(window).on('beforeunload', function () {
+        if (datosSucios) return 'Tienes datos sin guardar.';
+    });
+
+    // ── Documentos ─────────────────────────────────────────────────────────
+    /** Repinta el renglón de un tipo con el documento recién subido. */
+    function pintarDoc(idTipo, doc) {
+        var $fila = $('.docFila[data-tipo="' + idTipo + '"]');
+        $fila.find('.docEstado').html('<span class="badge badge-warning">En revisión</span>');
+        $fila.find('.docNombre').text(' · ' + (doc && doc.nombre_original ? doc.nombre_original : ''));
+        $fila.find('.docMotivo').addClass('d-none').find('.docMotivoTxt').text('');
+        // Sólo se limpia ESTE input: los archivos elegidos en los demás renglones
+        // se conservan (antes la página se recargaba y se perdían todos).
+        $fila.find('input[type=file]').val('');
+        actualizarBtnTodos();
+    }
+
+    /** Sube el archivo de un renglón. cb(ok) al terminar. */
+    function subirFila($form, cb) {
+        var input = $form.find('input[type=file]')[0];
+        if (!input || !input.files.length) { if (cb) cb(false); return; }
+        var idTipo = $form.data('tipo');
+        var fd = new FormData();
+        fd.append('documento', input.files[0]);
         fd.append('accion', 'subir_documento');
         fd.append('t', TOKEN);
-        fd.append('id_tipo', $(this).data('tipo'));
-        var $btn = $(this).find('button').prop('disabled', true);
+        fd.append('id_tipo', idTipo);
+        var $btn = $form.find('button').prop('disabled', true);
         ajaxUpload('acciones_portal.php', fd, function (err, res) {
             $btn.prop('disabled', false);
             if (res && res.success) {
-                mostrarToast(res.message, 'success');
-                setTimeout(function () { location.reload(); }, 900);
-            } else { mostrarToast((res && res.message) || 'No se pudo subir.', 'error'); }
+                pintarDoc(idTipo, res.documento);
+                if (cb) cb(true, res.message);
+            } else {
+                mostrarToast((res && res.message) || 'No se pudo subir.', 'error');
+                if (cb) cb(false);
+            }
         });
+    }
+
+    /** Habilita «Subir seleccionados» y le pone cuántos hay pendientes. */
+    function actualizarBtnTodos() {
+        var n = $('.formDoc input[type=file]').filter(function () { return this.files.length > 0; }).length;
+        $('#btnSubirTodos').prop('disabled', n === 0).html(
+            '<i class="fas fa-cloud-upload-alt mr-1"></i>Subir seleccionados' + (n ? ' (' + n + ')' : '')
+        );
+    }
+    $('.formDoc').on('change', 'input[type=file]', actualizarBtnTodos);
+
+    $('.formDoc').on('submit', function (e) {
+        e.preventDefault();
+        subirFila($(this), function (ok, msg) { if (ok) mostrarToast(msg, 'success'); });
+    });
+
+    // Sube en serie todo lo que esté elegido; cada renglón se repinta al terminar.
+    $('#btnSubirTodos').on('click', function () {
+        var $forms = $('.formDoc').filter(function () {
+            var i = $(this).find('input[type=file]')[0];
+            return i && i.files.length > 0;
+        });
+        if (!$forms.length) return;
+        var $btn = $(this).prop('disabled', true);
+        var i = 0, subidos = 0;
+        (function siguiente() {
+            if (i >= $forms.length) {
+                $btn.prop('disabled', false);
+                actualizarBtnTodos();
+                mostrarToast(subidos + ' de ' + $forms.length + ' documento(s) subidos. Recursos Humanos los revisará.',
+                             subidos === $forms.length ? 'success' : 'warning');
+                return;
+            }
+            var $f = $forms.eq(i++);
+            $btn.html('<i class="fas fa-spinner fa-spin mr-1"></i>Subiendo ' + i + ' de ' + $forms.length + '…');
+            subirFila($f, function (ok) { if (ok) subidos++; siguiente(); });
+        })();
     });
 });
 </script>

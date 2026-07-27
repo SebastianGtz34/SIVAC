@@ -57,6 +57,7 @@ include 'encabezado.php';
       <input type="hidden" id="docs_id">
       <div class="row">
         <div class="col-md-6">
+          <div id="bloqueGestionDocs">
           <h6>Datos del alta</h6>
           <div class="form-group"><label>Fecha de ingreso</label>
             <div class="input-group">
@@ -72,6 +73,39 @@ include 'encabezado.php';
           </div>
           <button class="btn btn-outline-info btn-sm mb-2" id="btnReglamento"><i class="fas fa-book mr-1"></i>Enviar reglamento</button>
           <div id="cierreInfo" class="small text-muted"></div>
+          <hr class="my-3">
+          </div><!-- /bloqueGestionDocs: se oculta cuando el candidato ya está contratado -->
+
+          <h6>Datos para el alta</h6>
+          <p class="small text-muted mb-2">
+            <i class="fas fa-info-circle mr-1"></i>Los captura el candidato en su portal.
+            Son los que jala gestionPersonal: revísalos y corrígelos si hace falta.
+          </p>
+          <div id="datosAltaAviso" class="alert alert-warning py-2 small d-none"></div>
+          <form id="formDatosAlta">
+            <div class="form-row">
+              <div class="form-group col-6"><label class="small mb-1">CURP *</label>
+                <input type="text" class="form-control form-control-sm text-uppercase" name="curp" id="da_curp" maxlength="18"></div>
+              <div class="form-group col-6"><label class="small mb-1">RFC *</label>
+                <input type="text" class="form-control form-control-sm text-uppercase" name="rfc" id="da_rfc" maxlength="13"></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group col-6"><label class="small mb-1">NSS *</label>
+                <input type="text" class="form-control form-control-sm" name="nss" id="da_nss" maxlength="11"></div>
+              <div class="form-group col-6"><label class="small mb-1">Sexo *</label>
+                <select class="form-control form-control-sm" name="sexo" id="da_sexo">
+                  <option value="">—</option><option value="M">Masculino</option><option value="F">Femenino</option>
+                </select></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group col-6"><label class="small mb-1">Fecha de nacimiento *</label>
+                <input type="date" class="form-control form-control-sm" name="fecha_nacimiento" id="da_fnac"></div>
+              <div class="form-group col-6"><label class="small mb-1">Tipo de sangre</label>
+                <select class="form-control form-control-sm" name="tipo_sangre" id="da_sangre"></select></div>
+            </div>
+            <button type="submit" class="btn btn-outline-primary btn-sm"><i class="fas fa-save mr-1"></i>Guardar datos</button>
+          </form>
+
           <button class="btn btn-success btn-block mt-3" id="btnCompletarAlta"><i class="fas fa-user-check mr-1"></i>Completar alta</button>
         </div>
         <div class="col-md-6">

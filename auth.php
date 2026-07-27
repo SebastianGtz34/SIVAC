@@ -88,6 +88,28 @@ if (!function_exists('sivacAuthNoEmpleado')) {
         return $cache[$noEmpleado] = $tiene;
     }
 
+    /**
+     * Empleados de RRHH/Reclutamiento activos: [['noEmpleado'=>int,'correo'=>string], …].
+     * Se usa para los avisos que no tienen un dueño concreto (una requisición
+     * pendiente de VoBo todavía no es de nadie). Cacheado por request.
+     */
+    function sivacEmpleadosRRHH(mysqli $conn): array {
+        static $cache = null;
+        if ($cache !== null) return $cache;
+        $placeholders = implode(',', array_map('intval', SIVAC_DEPTS_RRHH));
+        $res = $conn->query(
+            "SELECT noEmpleado, correo FROM mess_rrhh.usuarios
+             WHERE departamento IN ($placeholders) AND estatus = 1"
+        );
+        $cache = [];
+        if ($res) {
+            while ($r = $res->fetch_assoc()) {
+                $cache[] = ['noEmpleado' => (int)$r['noEmpleado'], 'correo' => (string)$r['correo']];
+            }
+        }
+        return $cache;
+    }
+
     /** Rol RRHH requerido (PÁGINAS): rebota al portal si no lo tiene. */
     function requiereRRHHPage(mysqli $conn, int $noEmpleado): void {
         if (!esRRHH($conn, $noEmpleado)) {

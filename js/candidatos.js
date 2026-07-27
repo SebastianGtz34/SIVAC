@@ -29,6 +29,23 @@ $(function () {
         });
     }
 
+    function cargarCatalogos() {
+        // Naves y regiones (mess_rrhh) para el form de candidato.
+        ajaxPost('acciones_candidatos.php', { accion: 'catalogos' }, function (err, res) {
+            if (err || !res || !res.success) return;
+            var optNave = '<option value="">Sin asignar</option>';
+            (res.naves || []).forEach(function (n) {
+                optNave += '<option value="' + n.id + '">' + escHtml(n.nave) + '</option>';
+            });
+            $('#cand_nave').html(optNave);
+            var optReg = '<option value="">Sin asignar</option>';
+            (res.regiones || []).forEach(function (r) {
+                optReg += '<option value="' + r.id + '">' + escHtml(r.region) + '</option>';
+            });
+            $('#cand_region').html(optReg);
+        });
+    }
+
     function cargar() {
         var idv = $('#filtroVacante').val() || '';
         ajaxPost('acciones_candidatos.php', { accion: 'listar', id_vacante: idv }, function (err, res) {
@@ -47,7 +64,12 @@ $(function () {
                 var acc = '<div class="btn-group btn-group-sm">';
                 if (c.estatus === 'aprobado_jefe') {
                     if (c.cita_jefe_pendiente) {
-                        acc += '<button class="btn btn-outline-primary btnConfirmar" data-id="' + c.id + '" title="Confirmar entrevista"><i class="fas fa-calendar-check"></i></button>';
+                        // Las dos fechas viajan en el botón para que el diálogo de
+                        // confirmación muestre horarios, no «Opción 1 / Opción 2».
+                        acc += '<button class="btn btn-outline-primary btnConfirmar" data-id="' + c.id + '"'
+                            + ' data-op1="' + escHtml(c.cita_jefe_op1 || '') + '"'
+                            + ' data-op2="' + escHtml(c.cita_jefe_op2 || '') + '"'
+                            + ' title="Confirmar entrevista"><i class="fas fa-calendar-check"></i></button>';
                     }
                     acc += '<button class="btn btn-outline-secondary btnCita" data-id="' + c.id + '" title="Agendar/reprogramar entrevista"><i class="fas fa-calendar-plus"></i></button>';
                 } else if (c.estatus === 'entrevistado' || c.estatus === 'propuesta_enviada'
@@ -161,6 +183,8 @@ $(function () {
             $('#cand_apellidos').val(c.apellidos);
             $('#cand_correo').val(c.correo);
             $('#cand_telefono').val(c.telefono);
+            $('#cand_nave').val(c.nave || '');
+            $('#cand_region').val(c.region || '');
             $('#cand_ent_rrhh_fecha').val(c.entrevista_rrhh_fecha || '');
             setResultadoRrhh(c.entrevista_rrhh_resultado || '');
             $('#cand_ent_rrhh_obs').val(c.entrevista_rrhh_observaciones || '');
@@ -342,20 +366,25 @@ $(function () {
     });
 
     $('#tablaCandidatos tbody').on('click', '.btnConfirmar', function () {
-        var id = $(this).data('id');
+        var id  = $(this).data('id');
+        // Fechas que registró el jefe: se muestran tal cual para que RRHH elija
+        // por horario y no tenga que adivinar cuál era la «opción 1».
+        var op1 = $(this).data('op1');
+        var op2 = $(this).data('op2');
         Swal.fire({
             title: 'Confirmar entrevista con el jefe',
-            html: '<p class="small text-muted mb-2">¿Cuál de las dos opciones aceptó el candidato?</p>'
+            html: '<p class="small text-muted mb-2">¿Cuál de las dos fechas aceptó el candidato?</p>'
                 + '<select id="sw_opcion" class="swal2-select">'
                 + '<option value="">Selecciona la fecha</option>'
-                + '<option value="1">Opción 1</option><option value="2">Opción 2</option></select>'
+                + '<option value="1">' + escHtml(formatearFecha(op1)) + '</option>'
+                + '<option value="2">' + escHtml(formatearFecha(op2)) + '</option></select>'
                 + '<textarea id="sw_notas" class="swal2-textarea" placeholder="Comentarios (opcional)"></textarea>',
             showCancelButton: true, confirmButtonColor: messColor('accent'),
             background: messColor('card-bg'), color: messColor('text'),
             confirmButtonText: 'Confirmar', cancelButtonText: 'Cancelar',
             preConfirm: function () {
                 var op = document.getElementById('sw_opcion').value;
-                if (!op) { Swal.showValidationMessage('Selecciona una opción.'); return false; }
+                if (!op) { Swal.showValidationMessage('Selecciona la fecha que aceptó el candidato.'); return false; }
                 return { opcion: op, notas: document.getElementById('sw_notas').value };
             }
         }).then(function (r) {
@@ -373,4 +402,5 @@ $(function () {
     // portal (embed_solicitante.php → acciones_solicitante.php). RRHH ya no lo hace.
 
     cargarVacantes(cargar);
+    cargarCatalogos();
 });

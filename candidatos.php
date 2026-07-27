@@ -73,6 +73,20 @@ include 'encabezado.php';
             <input type="text" class="form-control" name="telefono" id="cand_telefono" maxlength="30">
           </div>
         </div>
+        <div class="form-row">
+          <div class="form-group col-md-6">
+            <label>Nave</label>
+            <select class="form-control" name="nave" id="cand_nave">
+              <option value="">Sin asignar</option>
+            </select>
+          </div>
+          <div class="form-group col-md-6">
+            <label>Región</label>
+            <select class="form-control" name="region" id="cand_region">
+              <option value="">Sin asignar</option>
+            </select>
+          </div>
+        </div>
         <div class="form-group" id="grupoCv">
           <label>CV (PDF, máx. 5 MB) *</label>
           <input type="file" class="form-control-file" name="cv" id="cand_cv" accept="application/pdf">

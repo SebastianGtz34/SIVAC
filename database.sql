@@ -118,6 +118,8 @@ CREATE TABLE IF NOT EXISTS candidatos (
     psicometrico_observaciones TEXT NULL COMMENT 'psicométrico: observaciones',
     etapa_descarte  VARCHAR(50) NULL COMMENT 'etapa en la que fue descartado',
     motivo_descarte TEXT NULL,
+    nave    INT UNSIGNED NULL COMMENT 'id de mess_rrhh.nave (catálogo, sin FK); lo asigna RRHH, viaja al alta',
+    region  INT UNSIGNED NULL COMMENT 'id de mess_rrhh.region (catálogo, sin FK); asignación para el alta',
     creador_por  INT UNSIGNED NOT NULL,
     fecha_creacion      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     fecha_actualizacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -282,8 +284,14 @@ CREATE TABLE IF NOT EXISTS notificaciones_destinatarios (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ----------------------------------------------------------------------------
--- Notificaciones: campana in-system + bitácora de correos enviados
+-- Notificaciones: BITÁCORA de eventos y de los correos enviados.
 -- no_empleado_destino NULL = evento solo de correo externo (candidato/áreas)
+--
+-- OJO: la CAMPANA no vive aquí. Los avisos a empleados se publican en
+-- mess_rrhh.notificacion_historial con sistema = 'sivac', que es la tabla que
+-- comparten todos los sistemas del portal y la que lee el badge de loginMaster
+-- (ver includes/notificaciones.php). La columna `leida` de esta tabla quedó
+-- como histórico: el estado de lectura vive en notificacion_historial.estatus.
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS notificaciones (
     id            INT UNSIGNED NOT NULL AUTO_INCREMENT,

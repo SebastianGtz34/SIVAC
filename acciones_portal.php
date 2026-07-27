@@ -11,6 +11,8 @@ header('Content-Type: application/json; charset=utf-8');
 require_once 'conn.php';
 require_once 'includes/archivos.php';
 require_once 'includes/accesos.php';
+require_once 'includes/datos_alta.php';
+require_once 'includes/notificaciones.php';
 
 // POST desbordado (archivo mayor que post_max_size) antes de tocar $_POST.
 if (sivacPostDesbordado()) {
@@ -32,8 +34,15 @@ if (!$acceso) {
 // id del SERVIDOR: la única fuente de verdad de a quién pertenece la sesión.
 $idCandidato = (int)$acceso['id_candidato'];
 
-// El candidato sólo puede operar mientras está en documentación.
-$stmt = $conn->prepare("SELECT estatus FROM candidatos WHERE id = ? LIMIT 1");
+// El candidato sólo puede operar mientras está en documentación. Se trae además
+// el contexto para avisarle a RRHH lo que haga aquí (creador_por = la persona de
+// RRHH que registró al candidato; el endpoint que lo crea es RRHH-gated).
+$stmt = $conn->prepare(
+    "SELECT c.estatus, TRIM(CONCAT_WS(' ', c.nombre, NULLIF(c.apellidos,''))) AS nombre,
+            c.creador_por, c.id_vacante, v.folio
+     FROM candidatos c INNER JOIN vacantes v ON v.id = c.id_vacante
+     WHERE c.id = ? LIMIT 1"
+);
 $stmt->bind_param('i', $idCandidato);
 $stmt->execute();
 $cand = $stmt->get_result()->fetch_assoc();
@@ -43,48 +52,28 @@ if ($cand['estatus'] !== 'documentacion') {
     responder(false, 'Tu expediente ya no está en la etapa de documentación.');
 }
 
+// La validación y el UPSERT de los datos del alta viven en includes/datos_alta.php:
+// los comparte con el cierre de RRHH, que escribe la misma fila.
+
 /**
- * Sanea los datos fiscales. Todo es opcional al guardar (se puede capturar por
- * partes); si un campo viene, se valida su formato. CURP/RFC/NSS se normalizan a
- * mayúsculas. Devuelve ['error'=>?string, ...campos].
+ * Avisa a RRHH de algo que hizo el CANDIDATO. Va a la campana del portal (misma
+ * de loginMaster) sin correo: son avisos de trabajo, no de trámite. `dedup` evita
+ * ocho avisos cuando sube sus ocho documentos; origen 0 = no lo hizo un empleado.
  */
-function sanearDatosFiscales(array $post): array {
-    $curp = strtoupper(trim($post['curp'] ?? ''));
-    if ($curp !== '' && !preg_match('/^[A-Z]{4}\d{6}[HM][A-Z]{5}[0-9A-Z]\d$/', $curp)) {
-        return ['error' => 'La CURP no tiene un formato válido (18 caracteres).'];
-    }
-    $rfc = strtoupper(trim($post['rfc'] ?? ''));
-    if ($rfc !== '' && !preg_match('/^[A-ZÑ&]{3,4}\d{6}[0-9A-Z]{2,3}$/', $rfc)) {
-        return ['error' => 'El RFC no tiene un formato válido.'];
-    }
-    $nss = trim($post['nss'] ?? '');
-    if ($nss !== '' && !preg_match('/^\d{11}$/', $nss)) {
-        return ['error' => 'El NSS debe tener 11 dígitos.'];
-    }
-    $sexo = trim($post['sexo'] ?? '');
-    if ($sexo !== '' && !in_array($sexo, ['M', 'F'], true)) {
-        return ['error' => 'Sexo inválido.'];
-    }
-    $fnRaw = trim($post['fecha_nacimiento'] ?? '');
-    $fn = null;
-    if ($fnRaw !== '') {
-        $t = strtotime($fnRaw);
-        if (!$t || $t >= time()) return ['error' => 'La fecha de nacimiento no es válida.'];
-        $fn = date('Y-m-d', $t);
-    }
-    $sangre = trim($post['tipo_sangre'] ?? '');
-    if ($sangre !== '' && !preg_match('/^(A|B|AB|O)[+-]$/', strtoupper(str_replace(' ', '', $sangre)))) {
-        return ['error' => 'El tipo de sangre no es válido (p. ej. O+, A-).'];
-    }
-    return [
-        'error' => null,
-        'curp'  => $curp !== '' ? $curp : null,
-        'rfc'   => $rfc !== '' ? $rfc : null,
-        'nss'   => $nss !== '' ? $nss : null,
-        'sexo'  => $sexo !== '' ? $sexo : null,
-        'fecha_nacimiento' => $fn,
-        'tipo_sangre' => $sangre !== '' ? strtoupper(str_replace(' ', '', $sangre)) : null,
-    ];
+function avisarRrhh(mysqli $conn, array $cand, int $idCandidato, string $evento, string $titulo): void {
+    $destino = (int)($cand['creador_por'] ?? 0);
+    if ($destino <= 0) return;
+    notificarEvento($conn, $evento, [
+        'destino_no_empleado' => $destino,
+        'origen_no_empleado'  => 0,
+        'id_candidato' => $idCandidato,
+        'id_vacante'   => (int)$cand['id_vacante'],
+        'titulo'  => $titulo,
+        'mensaje' => (string)$cand['folio'],
+        'url'     => 'contrataciones.php',
+        'correos' => [],
+        'dedup'   => true,
+    ]);
 }
 
 $accion = $_POST['accion'] ?? $_GET['accion'] ?? '';
@@ -115,24 +104,37 @@ switch ($accion) {
         $stmt->bind_param('iisssiis', $idCandidato, $idTipo, $doc['nombre'], $doc['original'], $doc['mime'], $doc['tamano'], $subidoPor, $origen);
         $ok = $stmt->execute(); $stmt->close();
         if (!$ok) { @unlink(SIVAC_DIR_DOC . $doc['nombre']); responder(false, 'No se pudo guardar el documento.'); }
-        responder(true, 'Documento subido. Recursos Humanos lo revisará.');
+        avisarRrhh($conn, $cand, $idCandidato, 'documentos_recibidos',
+            'Documentación por revisar — ' . $cand['nombre']);
+
+        // Se devuelve el estado nuevo del renglón para que la página lo repinte SIN
+        // recargar: recargar borraba los archivos ya elegidos en los otros renglones
+        // y lo que el candidato llevara tecleado (y no guardado) en sus datos.
+        responder(true, 'Documento subido. Recursos Humanos lo revisará.', ['documento' => [
+            'id_tipo'         => $idTipo,
+            'nombre_original' => $doc['original'],
+            'validacion'      => 'pendiente',
+        ]]);
     }
 
     case 'guardar_datos_fiscales': {
-        $d = sanearDatosFiscales($_POST);
+        $d = sivacSanearDatosAlta($_POST);
         if ($d['error']) responder(false, $d['error']);
 
-        // UPSERT 1:1. No se tocan las columnas que decide RRHH/TI ni las banderas de alta.
-        $stmt = $conn->prepare(
-            "INSERT INTO candidatos_datos_alta (id_candidato, curp, rfc, nss, sexo, fecha_nacimiento, tipo_sangre)
-             VALUES (?, ?, ?, ?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE curp = VALUES(curp), rfc = VALUES(rfc), nss = VALUES(nss),
-                                     sexo = VALUES(sexo), fecha_nacimiento = VALUES(fecha_nacimiento),
-                                     tipo_sangre = VALUES(tipo_sangre)"
-        );
-        $stmt->bind_param('issssss', $idCandidato, $d['curp'], $d['rfc'], $d['nss'], $d['sexo'], $d['fecha_nacimiento'], $d['tipo_sangre']);
-        $ok = $stmt->execute(); $stmt->close();
-        responder($ok, $ok ? 'Tus datos se guardaron.' : 'No se pudieron guardar tus datos.');
+        $ok = sivacGuardarDatosAlta($conn, $idCandidato, $d);
+        // Se le dice al candidato qué le falta todavía: es la única señal que tiene
+        // de que su expediente aún no está completo para el alta.
+        $faltan = $ok ? sivacDatosAltaFaltantes($d) : [];
+        // A RRHH se le avisa sólo cuando ya están COMPLETOS: es el momento en que
+        // puede cerrar el alta. Los guardados parciales no son noticia.
+        if ($ok && !$faltan) {
+            avisarRrhh($conn, $cand, $idCandidato, 'datos_alta_completos',
+                'Datos del alta completos — ' . $cand['nombre']);
+        }
+        $msg = $ok
+            ? ($faltan ? 'Tus datos se guardaron. Te falta capturar: ' . implode(', ', $faltan) . '.' : 'Tus datos se guardaron.')
+            : 'No se pudieron guardar tus datos.';
+        responder($ok, $msg, ['faltan' => $faltan]);
     }
 
     default:

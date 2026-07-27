@@ -34,6 +34,11 @@ $(function () {
                 } else if (c.estatus === 'documentacion') {
                     acc += '<button class="btn btn-outline-primary btnDocs" data-id="' + c.id + '" data-nombre="' + escHtml(c.nombre) + '"><i class="fas fa-folder-open mr-1"></i>Documentación</button>';
                     acc += '<button class="btn btn-outline-secondary btnEnlace" data-id="' + c.id + '" title="Copiar enlace del portal del candidato"><i class="fas fa-link"></i></button>';
+                } else if (c.estatus === 'contratado') {
+                    // Ya contratado: sólo consulta del expediente y de los datos que
+                    // jala gestionPersonal (siguen siendo corregibles hasta que allá
+                    // se aplique el alta).
+                    acc += '<button class="btn btn-outline-secondary btnDocs" data-id="' + c.id + '" data-nombre="' + escHtml(c.nombre) + '" data-solo="1" title="Ver expediente y datos del alta"><i class="fas fa-id-card"></i></button>';
                 }
                 acc += '</div>';
 
@@ -97,10 +102,16 @@ $(function () {
     var docCandidato = 0;
     $('#tablaCierre tbody').on('click', '.btnDocs', function () {
         docCandidato = $(this).data('id');
+        // Modo consulta (candidato ya contratado): se esconde todo lo que mueve el
+        // proceso; queda el expediente y los datos del alta.
+        var soloDatos = String($(this).data('solo') || '') === '1';
+        $('#bloqueGestionDocs').toggleClass('d-none', soloDatos);
+        $('#btnCompletarAlta').toggleClass('d-none', soloDatos);
         $('#docs_id').val(docCandidato);
-        $('#docsTitulo').text('Documentación — ' + $(this).data('nombre'));
+        $('#docsTitulo').text((soloDatos ? 'Expediente — ' : 'Documentación — ') + $(this).data('nombre'));
         $('#ingreso_fecha').val(''); $('#prorroga_fecha').val('');
         cargarFicha();
+        cargarDatosAlta();
         $('#modalDocs').modal('show');
     });
 
@@ -158,6 +169,65 @@ $(function () {
             $('#cierreInfo').html('');
         });
     }
+
+    /** Trae lo que el candidato capturó en su portal y pinta qué falta. */
+    function cargarDatosAlta() {
+        ajaxPost('acciones_cierre.php', { accion: 'datos_alta', id: docCandidato }, function (err, res) {
+            if (err || !res || !res.success) return;
+            var d = res.datos || {};
+            // El catálogo de tipo de sangre viene del servidor: es el de gestionPersonal.
+            var catalogo = res.catalogo_sangre || [];
+            var opts = '<option value="">Seleccionar…</option>';
+            // Un valor viejo fuera del catálogo se conserva como opción, para no
+            // borrarlo sin querer al volver a guardar.
+            if (d.tipo_sangre && catalogo.indexOf(d.tipo_sangre) === -1) {
+                opts += '<option value="' + escHtml(d.tipo_sangre) + '">' + escHtml(d.tipo_sangre) + ' (fuera de catálogo)</option>';
+            }
+            catalogo.forEach(function (s) {
+                opts += '<option value="' + escHtml(s) + '">' + escHtml(s) + '</option>';
+            });
+            $('#da_sangre').html(opts);
+
+            $('#da_curp').val(d.curp || '');
+            $('#da_rfc').val(d.rfc || '');
+            $('#da_nss').val(d.nss || '');
+            $('#da_sexo').val(d.sexo || '');
+            $('#da_fnac').val(d.fecha_nacimiento || '');
+            $('#da_sangre').val(d.tipo_sangre || '');
+            pintarFaltan(res.faltan || []);
+
+            // Aplicada el alta allá, la fila ya se consumió: sólo lectura.
+            var aplicada = parseInt(d.alta_aplicada || 0) === 1;
+            $('#formDatosAlta').find('input, select, button').prop('disabled', aplicada);
+            if (aplicada) {
+                $('#datosAltaAviso').removeClass('d-none alert-warning').addClass('alert-success')
+                    .html('<i class="fas fa-check mr-1"></i>El alta ya se aplicó en gestionPersonal.');
+            }
+        });
+    }
+
+    function pintarFaltan(faltan) {
+        var $a = $('#datosAltaAviso').removeClass('alert-success').addClass('alert-warning');
+        if (!faltan.length) {
+            $a.removeClass('d-none').html('<i class="fas fa-check mr-1"></i>Datos completos para el alta.');
+        } else {
+            $a.removeClass('d-none').html('<i class="fas fa-exclamation-triangle mr-1"></i>Falta capturar: '
+                + escHtml(faltan.join(', ')) + '.');
+        }
+    }
+
+    $('#formDatosAlta').on('submit', function (e) {
+        e.preventDefault();
+        var data = $(this).serializeArray();
+        data.push({ name: 'accion', value: 'guardar_datos_alta' });
+        data.push({ name: 'id', value: docCandidato });
+        ajaxPost('acciones_cierre.php', data, function (err, res) {
+            if (res && res.success) {
+                pintarFaltan(res.faltan || []);
+                mostrarToast(res.message, (res.faltan || []).length ? 'warning' : 'success');
+            } else { mostrarToast((res && res.message) || 'Error.', 'error'); }
+        });
+    });
 
     $('#listaDocs').on('click', '.btnValDoc', function () {
         var idDoc = $(this).data('id');
