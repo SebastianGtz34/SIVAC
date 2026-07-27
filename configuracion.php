@@ -91,4 +91,4 @@ include 'encabezado.php';
 </div>
 
 <?php include 'pie.php'; ?>
-<script src="js/configuracion.js"></script>
+<script src="<?= sivacAsset('js/configuracion.js') ?>"></script>

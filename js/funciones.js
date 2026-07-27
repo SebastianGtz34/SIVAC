@@ -3,15 +3,14 @@
    Stack: jQuery 3.6 + Bootstrap 4.6 + SweetAlert2 + DataTables (es-MX local)
    ───────────────────────────────────────── */
 
-/** Etiquetas legibles de los estatuss del pipeline (espejo de includes/flujo.php). */
+/** Etiquetas legibles de los estatuss del pipeline (espejo de includes/flujo.php).
+ *  Si cambias uno, cámbialo también allá: el backend es la fuente de verdad. */
 window.SIVAC_estatusS = {
     aspirante: 'Capturado',
     enviado_solicitante: 'Enviado al solicitante',
     aprobado_jefe: 'Aprobado por solicitante',
-    psicometrico_asignado: 'Psicométrico asignado',
-    psicometrico_presentado: 'Psicométrico presentado',
-    entrevista_confirmada: 'Entrevista confirmada',
-    entrevistado: 'Entrevistado',
+    entrevista_confirmada: 'Entrevista con jefe confirmada',
+    entrevistado: 'Entrevistado por el jefe',
     propuesta_enviada: 'Propuesta enviada',
     propuesta_expirada: 'Propuesta expirada',
     propuesta_aceptada: 'Propuesta aceptada',
@@ -19,6 +18,20 @@ window.SIVAC_estatusS = {
     contratado: 'Contratado',
     descartado: 'Descartado'
 };
+
+/** Etiquetas de estatus de VACANTE (espejo del ENUM vacantes.estatus). */
+window.SIVAC_estatusS_VAC = {
+    pendiente_vobo: 'Pendiente de VoBo',
+    abierta: 'Abierta',
+    en_proceso: 'En proceso',
+    pausada: 'Pausada',
+    cerrada: 'Cerrada',
+    cancelada: 'Cancelada',
+    rechazada: 'Rechazada'
+};
+
+/** Etiquetas del tipo de vacante ('practicas' = flujo corto, sin propuesta). */
+window.SIVAC_TIPOS_VACANTE = { temporal: 'Temporal', permanente: 'Permanente', practicas: 'Prácticas' };
 
 /** Lee una cookie por nombre. */
 function getCookie(name) {
@@ -131,6 +144,20 @@ function dtIdioma() {
 }
 function dtIdiomaEmbed() {
     return { url: '../SIVAC/vendor/datatables/i18n/es-MX.json' };
+}
+
+/** Reajusta el ancho de columnas de una DataTable cuando cambia el contexto:
+ *  al redimensionar la ventana y al cambiar de tema. Corrige columnas angostas y
+ *  encabezados desalineados, que aparecen porque la tabla se inicializa vacía y se
+ *  llena por AJAX (el ancho se calcula sobre la tabla vacía). Tras poblar, cada
+ *  módulo debe llamar además `tabla.columns.adjust()` después del draw(). Devuelve
+ *  la misma tabla para poder encadenar. */
+function dtAutoAjustar(tabla) {
+    var timer;
+    var reajustar = function () { try { tabla.columns.adjust(); } catch (e) {} };
+    $(window).on('resize', function () { clearTimeout(timer); timer = setTimeout(reajustar, 150); });
+    $(document).on('sivac:themechange', reajustar);
+    return tabla;
 }
 
 /** Wrapper $.ajax POST → JSON con callback(err, res) estilo node. */

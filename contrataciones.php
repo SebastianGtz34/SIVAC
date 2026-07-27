@@ -18,7 +18,7 @@ include 'encabezado.php';
         <div class="table-responsive">
             <table class="table table-hover w-100" id="tablaCierre">
                 <thead><tr>
-                    <th>Candidato</th><th>Vacante</th><th class="text-center">estatus</th>
+                    <th>Candidato</th><th>Vacante</th><th class="text-center">Estatus</th>
                     <th>Detalle</th><th></th>
                 </tr></thead>
                 <tbody></tbody>
@@ -75,17 +75,11 @@ include 'encabezado.php';
           <button class="btn btn-success btn-block mt-3" id="btnCompletarAlta"><i class="fas fa-user-check mr-1"></i>Completar alta</button>
         </div>
         <div class="col-md-6">
-          <h6>Subir documento</h6>
-          <form id="formDoc" enctype="multipart/form-data">
-            <div class="form-group">
-              <select class="form-control mb-2" id="doc_tipo" required></select>
-              <input type="file" class="form-control-file" id="doc_archivo" accept="application/pdf,image/jpeg,image/png" required>
-              <small class="text-muted">PDF, JPG o PNG, máx. 10 MB.</small>
-            </div>
-            <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-upload mr-1"></i>Subir</button>
-          </form>
-          <hr>
-          <h6>Documentos subidos</h6>
+          <h6>Documentos del candidato</h6>
+          <p class="small text-muted mb-2">
+            <i class="fas fa-info-circle mr-1"></i>Los sube el candidato desde su enlace del portal.
+            Aquí puedes revisarlos: validar o rechazar (con motivo).
+          </p>
           <ul class="list-group" id="listaDocs"></ul>
         </div>
       </div>
@@ -94,4 +88,4 @@ include 'encabezado.php';
 </div>
 
 <?php include 'pie.php'; ?>
-<script src="js/contrataciones.js"></script>
+<script src="<?= sivacAsset('js/contrataciones.js') ?>"></script>

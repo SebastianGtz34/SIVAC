@@ -37,6 +37,10 @@
     /* series de gráficas (validadas para daltonismo/contraste, modo claro) */
     --chart-1: #2b6cb0;
     --chart-2: #dd6b20;
+    /* paleta categórica (para gráficas con varias categorías, p. ej. rechazos por etapa) */
+    --chart-3: #38a169;
+    --chart-4: #805ad5;
+    --chart-5: #d53f8c;
     --grid:    #e3e6ec;
 }
 
@@ -65,6 +69,10 @@ body.theme-dark {
     /* series de gráficas (validadas contra superficie oscura #121a2b) */
     --chart-1: #4a97cc;
     --chart-2: #cc7a2e;
+    /* paleta categórica (superficie oscura) */
+    --chart-3: #48bb78;
+    --chart-4: #9f7aea;
+    --chart-5: #ed64a6;
     --grid:    #243049;
 }
 
@@ -155,28 +163,41 @@ a:hover { color: var(--accent-dark); }
 .btn-outline-primary { color: var(--accent); border-color: var(--accent); }
 .btn-outline-primary:hover { background-color: var(--accent); border-color: var(--accent); }
 
-/* ===== Badges por estatus del pipeline ===== */
+/* ===== Badges por estatus del pipeline =====
+   La clase se arma como .badge-<estatus> con el valor CRUDO del ENUM
+   (badgeestatusCandidato en funciones.js), así que estos nombres deben calcar
+   los estatus de includes/flujo.php — no sus etiquetas legibles.
+   El COLOR agrupa por categoría semántica (el texto del badge distingue el
+   estatus exacto):
+     · verde   = positivo / aprobado / avanza
+     · amarillo = en proceso (paso activo en curso)
+     · azul info = en espera / informativo
+     · rojo    = negativo / rechazo / descarte */
 .badge-estatus { font-size: .72rem; font-weight: 700; padding: .35em .6em; color: #fff; }
-.badge-capturado               { background: var(--neutral); }
-.badge-enviado_solicitante     { background: #6f7fd6; }
-.badge-aprobado_solicitante    { background: #4a97cc; }
-.badge-psicometrico_asignado   { background: #b07dd6; }
-.badge-psicometrico_presentado { background: #8e5fc2; }
-.badge-entrevista_confirmada   { background: #2f80b8; }
-.badge-entrevistado            { background: #1f6f9e; }
-.badge-propuesta_enviada       { background: var(--warning); color: #3a2f00; }
-.badge-propuesta_expirada      { background: #c98a00; }
-.badge-propuesta_aceptada      { background: #2c9e6a; }
-.badge-documentacion           { background: #157a5b; }
-.badge-contratado              { background: var(--success); }
-.badge-descartado              { background: var(--danger); }
+/* Azul info — en espera / informativo */
+.badge-aspirante                  { background: var(--info); }
+.badge-enviado_solicitante        { background: var(--info); }
+.badge-propuesta_enviada          { background: var(--info); }
+/* Verde — positivo / aprobado */
+.badge-aprobado_jefe              { background: var(--success); }
+.badge-entrevistado               { background: var(--success); }
+.badge-propuesta_aceptada         { background: var(--success); }
+.badge-contratado                 { background: var(--success); }
+/* Amarillo — en proceso */
+.badge-entrevista_confirmada      { background: var(--warning); color: #3a2f00; }
+.badge-documentacion              { background: var(--warning); color: #3a2f00; }
+/* Rojo — negativo / rechazo */
+.badge-propuesta_expirada         { background: var(--danger); }
+.badge-descartado                 { background: var(--danger); }
 
 /* estatus de vacante */
+.badge-vac-pendiente_vobo { background: #b07dd6; color:#fff; }
 .badge-vac-abierta    { background: var(--success); color:#fff; }
 .badge-vac-en_proceso { background: var(--info); color:#fff; }
 .badge-vac-pausada    { background: var(--warning); color:#3a2f00; }
 .badge-vac-cerrada    { background: var(--neutral); color:#fff; }
 .badge-vac-cancelada  { background: var(--danger); color:#fff; }
+.badge-vac-rechazada  { background: #a33; color:#fff; }
 
 /* ===== DataTables (adaptación a tokens) ===== */
 .dataTables_wrapper { color: var(--text); }

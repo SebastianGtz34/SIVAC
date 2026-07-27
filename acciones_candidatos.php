@@ -2,7 +2,7 @@
 /**
  * acciones_candidatos.php — Captura y gestión de candidatos (JSON). Gate: RRHH.
  * Subidas de CV validadas por firma de bytes. El cambio de estatus pasa SIEMPRE
- * por la máquina de estatuss (includes/flujo.php); las notificaciones por
+ * por la máquina de estatus (includes/flujo.php); las notificaciones por
  * includes/notificaciones.php.
  */
 header('Content-Type: application/json; charset=utf-8');
@@ -28,6 +28,57 @@ function responder(bool $success, string $message = '', array $extra = []): void
     exit;
 }
 
+/**
+ * Sanea la constancia de la entrevista de RRHH de un request.
+ * Devuelve ['error'=>?string, 'fecha'=>?string, 'resultado'=>?string, 'observaciones'=>?string].
+ * Todo es opcional al guardar; la obligatoriedad se exige al enviar al jefe.
+ */
+function sanearConstanciaRrhh(array $post): array {
+    $fechaRaw = trim($post['entrevista_rrhh_fecha'] ?? '');
+    $fecha = $fechaRaw !== '' && strtotime($fechaRaw) ? date('Y-m-d', strtotime($fechaRaw)) : null;
+    if ($fechaRaw !== '' && $fecha === null) {
+        return ['error' => 'La fecha de la entrevista de RRHH no es válida.'];
+    }
+    $res = trim($post['entrevista_rrhh_resultado'] ?? '');
+    if ($res !== '' && !in_array($res, ['apto', 'no_apto'], true)) {
+        return ['error' => 'Resultado de la entrevista de RRHH inválido.'];
+    }
+    $obs = trim($post['entrevista_rrhh_observaciones'] ?? '');
+    return [
+        'error' => null,
+        'fecha' => $fecha,
+        'resultado' => $res !== '' ? $res : null,
+        'observaciones' => $obs !== '' ? $obs : null,
+    ];
+}
+
+/**
+ * Sanea el psicométrico (informativo) de un request. Espeja sanearConstanciaRrhh
+ * más un campo: la calificación (VARCHAR libre, sin validación numérica: aún está
+ * pendiente cómo se evalúa). NO descarta ni bloquea nada — sólo deja constancia.
+ * Devuelve ['error'=>?string, 'fecha'=>?, 'calificacion'=>?, 'resultado'=>?, 'observaciones'=>?].
+ */
+function sanearPsicometrico(array $post): array {
+    $fechaRaw = trim($post['psicometrico_fecha'] ?? '');
+    $fecha = $fechaRaw !== '' && strtotime($fechaRaw) ? date('Y-m-d', strtotime($fechaRaw)) : null;
+    if ($fechaRaw !== '' && $fecha === null) {
+        return ['error' => 'La fecha del psicométrico no es válida.'];
+    }
+    $res = trim($post['psicometrico_resultado'] ?? '');
+    if ($res !== '' && !in_array($res, ['apto', 'no_apto'], true)) {
+        return ['error' => 'Resultado del psicométrico inválido.'];
+    }
+    $cal = trim($post['psicometrico_calificacion'] ?? '');
+    $obs = trim($post['psicometrico_observaciones'] ?? '');
+    return [
+        'error' => null,
+        'fecha' => $fecha,
+        'calificacion' => $cal !== '' ? mb_substr($cal, 0, 30) : null,
+        'resultado' => $res !== '' ? $res : null,
+        'observaciones' => $obs !== '' ? $obs : null,
+    ];
+}
+
 /** Datos de la vacante (o null). */
 function vacanteDe(mysqli $conn, int $id): ?array {
     $stmt = $conn->prepare("SELECT id, folio, puesto, estatus, no_empleado_solicitante FROM vacantes WHERE id = ? LIMIT 1");
@@ -41,9 +92,17 @@ function vacanteDe(mysqli $conn, int $id): ?array {
 switch ($accion) {
 
     case 'listar': {
+        // Tablero único del pipeline: además de los datos del candidato trae la
+        // cita de la entrevista del jefe, para que la UI ofrezca inline la acción
+        // que toca (confirmar / agendar / resultado) sin una pantalla aparte.
         $idVacante = (int)($_POST['id_vacante'] ?? $_GET['id_vacante'] ?? 0);
-        $sql = "SELECT c.id, c.nombre, c.correo, c.telefono, c.estatus, c.cv_archivo,
-                       c.fecha_creacion, v.folio, v.puesto, v.id AS id_vacante
+        $sql = "SELECT c.id, TRIM(CONCAT_WS(' ', c.nombre, NULLIF(c.apellidos,''))) AS nombre, c.correo, c.telefono, c.estatus, c.cv_archivo,
+                       c.fecha_creacion, v.folio, v.puesto, v.id AS id_vacante,
+                       (SELECT ci.id FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' AND ci.estatus = 'pendiente' ORDER BY ci.id DESC LIMIT 1) AS cita_jefe_pendiente,
+                       (SELECT ci.opcion1 FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' AND ci.estatus = 'pendiente' ORDER BY ci.id DESC LIMIT 1) AS cita_jefe_op1,
+                       (SELECT ci.opcion2 FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' AND ci.estatus = 'pendiente' ORDER BY ci.id DESC LIMIT 1) AS cita_jefe_op2,
+                       (SELECT ci.fecha_confirmada FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' AND ci.estatus IN ('confirmada','realizada') ORDER BY ci.id DESC LIMIT 1) AS cita_jefe_confirmada,
+                       (SELECT ci.notas FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' ORDER BY ci.id DESC LIMIT 1) AS cita_jefe_notas
                 FROM candidatos c
                 INNER JOIN vacantes v ON v.id = c.id_vacante";
         $params = []; $tipos = '';
@@ -73,10 +132,13 @@ switch ($accion) {
         $stmt->close();
         if (!$cand) responder(false, 'Candidato no encontrado.');
 
-        // Historial
+        // Historial (con el nombre del actor resuelto; no_empleado = 0 es el sistema).
         $stmt = $conn->prepare(
-            "SELECT estatus_anterior, estatus_nuevo, no_empleado, comentario, fecha_creacion
-             FROM candidatos_historial WHERE id_candidato = ? ORDER BY id DESC"
+            "SELECT h.estatus_anterior, h.estatus_nuevo, h.no_empleado, h.comentario, h.fecha_creacion,
+                    u.nombre AS actor_nombre
+             FROM candidatos_historial h
+             LEFT JOIN mess_rrhh.usuarios u ON u.noEmpleado = h.no_empleado
+             WHERE h.id_candidato = ? ORDER BY h.id DESC"
         );
         $stmt->bind_param('i', $id);
         $stmt->execute();
@@ -97,7 +159,8 @@ switch ($accion) {
 
         $docs = [];
         $stmt = $conn->prepare(
-            "SELECT d.id, d.nombre_original, d.tamano, d.fecha_creacion, t.nombre AS tipo
+            "SELECT d.id, d.nombre_original, d.tamano, d.fecha_creacion, t.nombre AS tipo,
+                    d.validacion, d.validado_fecha, d.motivo_validacion
              FROM documentos d INNER JOIN documentos_tipos t ON t.id = d.id_tipo
              WHERE d.id_candidato = ? ORDER BY d.id DESC"
         );
@@ -110,10 +173,17 @@ switch ($accion) {
     case 'crear': {
         $idVacante = (int)($_POST['id_vacante'] ?? 0);
         $nombre    = trim($_POST['nombre'] ?? '');
+        $apellidos = trim($_POST['apellidos'] ?? '');
         $correo    = trim($_POST['correo'] ?? '');
         $telefono  = trim($_POST['telefono'] ?? '');
+        // Constancia de la entrevista de RRHH (fuera del sistema). Opcional al
+        // crear, pero obligatoria para poder enviar el candidato al jefe.
+        $entRrhh = sanearConstanciaRrhh($_POST);
+        if ($entRrhh['error']) responder(false, $entRrhh['error']);
+        [$entRrhhFecha, $entRrhhResVal, $entRrhhObsVal] = [$entRrhh['fecha'], $entRrhh['resultado'], $entRrhh['observaciones']];
 
         if ($nombre === '') responder(false, 'El nombre es obligatorio.');
+        if ($apellidos === '') responder(false, 'Los apellidos son obligatorios.');
         if (!filter_var($correo, FILTER_VALIDATE_EMAIL)) responder(false, 'Correo inválido.');
         $vac = vacanteDe($conn, $idVacante);
         if (!$vac) responder(false, 'Vacante inválida.');
@@ -127,10 +197,10 @@ switch ($accion) {
         if (!$cv['ok']) responder(false, $cv['message']);
 
         $stmt = $conn->prepare(
-            "INSERT INTO candidatos (id_vacante, nombre, apellidos, correo, telefono, cv_archivo, cv_nombre_original, cv_tamano, creador_por)
-             VALUES (?, ?, '', ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO candidatos (id_vacante, nombre, apellidos, correo, telefono, cv_archivo, cv_nombre_original, cv_tamano, entrevista_rrhh_fecha, entrevista_rrhh_resultado, entrevista_rrhh_observaciones, creador_por)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         );
-        $stmt->bind_param('isssssii', $idVacante, $nombre, $correo, $telefono, $cv['nombre'], $cv['original'], $cv['tamano'], $noEmp);
+        $stmt->bind_param('issssssisssi', $idVacante, $nombre, $apellidos, $correo, $telefono, $cv['nombre'], $cv['original'], $cv['tamano'], $entRrhhFecha, $entRrhhResVal, $entRrhhObsVal, $noEmp);
         $ok = $stmt->execute();
         $id = (int)$conn->insert_id;
         $stmt->close();
@@ -144,6 +214,9 @@ switch ($accion) {
         $hist->bind_param('ii', $id, $noEmp);
         $hist->execute();
         $hist->close();
+
+        // El veredicto de RRHH (incluido "No apto") ya NO descarta solo: nadie
+        // se descarta sin un botón explícito.
         responder(true, 'Candidato registrado.', ['id' => $id]);
     }
 
@@ -169,15 +242,44 @@ switch ($accion) {
     case 'editar': {
         $id       = (int)($_POST['id'] ?? 0);
         $nombre   = trim($_POST['nombre'] ?? '');
+        $apellidos= trim($_POST['apellidos'] ?? '');
         $correo   = trim($_POST['correo'] ?? '');
         $telefono = trim($_POST['telefono'] ?? '');
+        $entRrhh = sanearConstanciaRrhh($_POST);
         if ($id <= 0) responder(false, 'Id inválido.');
         if ($nombre === '') responder(false, 'El nombre es obligatorio.');
+        if ($apellidos === '') responder(false, 'Los apellidos son obligatorios.');
         if (!filter_var($correo, FILTER_VALIDATE_EMAIL)) responder(false, 'Correo inválido.');
-        $stmt = $conn->prepare("UPDATE candidatos SET nombre = ?, correo = ?, telefono = ? WHERE id = ?");
-        $stmt->bind_param('sssi', $nombre, $correo, $telefono, $id);
+        if ($entRrhh['error']) responder(false, $entRrhh['error']);
+        [$entRrhhFecha, $entRrhhResVal, $entRrhhObsVal] = [$entRrhh['fecha'], $entRrhh['resultado'], $entRrhh['observaciones']];
+        $stmt = $conn->prepare("UPDATE candidatos SET nombre = ?, apellidos = ?, correo = ?, telefono = ?, entrevista_rrhh_fecha = ?, entrevista_rrhh_resultado = ?, entrevista_rrhh_observaciones = ? WHERE id = ?");
+        $stmt->bind_param('sssssssi', $nombre, $apellidos, $correo, $telefono, $entRrhhFecha, $entRrhhResVal, $entRrhhObsVal, $id);
         $ok = $stmt->execute(); $stmt->close();
-        responder($ok, $ok ? 'Candidato actualizado.' : 'No se pudo actualizar.');
+        if (!$ok) responder(false, 'No se pudo actualizar.');
+        // Un "No apto" ya NO descarta solo (nadie se descarta sin botón explícito).
+        responder(true, 'Candidato actualizado.');
+    }
+
+    case 'registrar_psicometrico': {
+        // Psicométrico PURAMENTE INFORMATIVO: no cambia estatus, no descarta y un
+        // "no apto" no bloquea nada. Sólo actualiza los 4 campos en candidatos.
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id <= 0) responder(false, 'Id inválido.');
+        $ps = sanearPsicometrico($_POST);
+        if ($ps['error']) responder(false, $ps['error']);
+
+        $stmt = $conn->prepare("SELECT id FROM candidatos WHERE id = ? LIMIT 1");
+        $stmt->bind_param('i', $id); $stmt->execute();
+        $existe = $stmt->get_result()->fetch_assoc(); $stmt->close();
+        if (!$existe) responder(false, 'Candidato no encontrado.');
+
+        $stmt = $conn->prepare(
+            "UPDATE candidatos SET psicometrico_fecha = ?, psicometrico_calificacion = ?,
+                    psicometrico_resultado = ?, psicometrico_observaciones = ? WHERE id = ?"
+        );
+        $stmt->bind_param('ssssi', $ps['fecha'], $ps['calificacion'], $ps['resultado'], $ps['observaciones'], $id);
+        $ok = $stmt->execute(); $stmt->close();
+        responder($ok, $ok ? 'Psicométrico guardado.' : 'No se pudo guardar el psicométrico.');
     }
 
     case 'enviar_solicitante': {
@@ -189,9 +291,11 @@ switch ($accion) {
         foreach ($ids as $raw) {
             $idc = (int)$raw;
             if ($idc <= 0) continue;
-            // Relee estatus + CV + vacante.
+            // Relee estatus + CV + constancia RRHH + vacante.
             $stmt = $conn->prepare(
-                "SELECT c.estatus, c.cv_archivo, c.nombre, v.id AS id_vacante, v.folio, v.puesto, v.no_empleado_solicitante
+                "SELECT c.estatus, c.cv_archivo, TRIM(CONCAT_WS(' ', c.nombre, NULLIF(c.apellidos,''))) AS nombre,
+                        c.entrevista_rrhh_fecha, c.entrevista_rrhh_resultado,
+                        v.id AS id_vacante, v.folio, v.puesto, v.no_empleado_solicitante
                  FROM candidatos c INNER JOIN vacantes v ON v.id = c.id_vacante WHERE c.id = ? LIMIT 1"
             );
             $stmt->bind_param('i', $idc); $stmt->execute();
@@ -199,8 +303,14 @@ switch ($accion) {
             if (!$c) { $errores[] = "#$idc: no existe"; continue; }
             if ($c['estatus'] !== 'aspirante') { $errores[] = "#$idc: no está en captura"; continue; }
             if (!$c['cv_archivo']) { $errores[] = "#$idc: sin CV"; continue; }
+            // La constancia de la entrevista de RRHH es obligatoria antes de
+            // pasar el candidato al jefe (la de RRHH va primero, fuera del sistema).
+            if (empty($c['entrevista_rrhh_fecha']) || trim((string)$c['entrevista_rrhh_resultado']) === '') {
+                $errores[] = "#$idc: falta la constancia de la entrevista de RRHH (fecha y resultado)";
+                continue;
+            }
 
-            $r = cambiarestatusCandidato($conn, $idc, 'enviado_solicitante', $noEmp, 'Enviado al solicitante para revisión.');
+            $r = cambiarEstatusCandidato($conn, $idc, 'enviado_solicitante', $noEmp, 'Enviado al solicitante para revisión.');
             if (!$r['ok']) { $errores[] = "#$idc: " . $r['message']; continue; }
             $enviados++;
 
@@ -243,7 +353,7 @@ switch ($accion) {
         if (!$row) responder(false, 'Candidato no encontrado.');
         $etapa = $row['estatus'];
 
-        $r = cambiarestatusCandidato($conn, $id, 'descartado', $noEmp, 'Descartado: ' . $motivo);
+        $r = cambiarEstatusCandidato($conn, $id, 'descartado', $noEmp, 'Descartado: ' . $motivo);
         if (!$r['ok']) responder(false, $r['message']);
         $stmt = $conn->prepare("UPDATE candidatos SET etapa_descarte = ?, motivo_descarte = ? WHERE id = ?");
         $stmt->bind_param('ssi', $etapa, $motivo, $id);

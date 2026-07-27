@@ -9,6 +9,7 @@
  *
  * Todos los assets son LOCALES (requisito del proyecto: cero CDN).
  */
+require_once __DIR__ . '/includes/assets.php';
 if (!isset($noEmpSesion)) { $noEmpSesion = requiereSesionPage(); }
 $pageTitle  = $pageTitle  ?? 'SIVAC';
 $menuActivo = $menuActivo ?? '';
@@ -33,7 +34,7 @@ $nombreUsuario = $datosUsuario['nombre'] ?? ('Empleado #' . $noEmpSesion);
     <link href="vendor/sb-admin-2/css/sb-admin-2.min.css" rel="stylesheet">
     <link href="vendor/datatables/dataTables.bootstrap4.min.css" rel="stylesheet">
     <link href="vendor/sweetalert2/sweetalert2.min.css" rel="stylesheet">
-    <link href="css/estilos.css" rel="stylesheet">
+    <link href="<?= sivacAsset('css/estilos.css') ?>" rel="stylesheet">
     <script>if (document.documentElement.classList.contains('pre-dark')) document.addEventListener('DOMContentLoaded', function(){ document.body.classList.add('theme-dark'); });</script>
 </head>
 <body id="page-top">

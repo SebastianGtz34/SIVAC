@@ -6,6 +6,10 @@
 // (mismo esquema que ControlVehicular/includes/enviar_notificacion.php).
 // ============================================================================
 return [
+    // Interruptor de envío de correo. Con 'activo' => false NO se envía nada
+    // (útil en local/staging); todo queda registrado en la tabla notificaciones.
+    // En producción ponerlo en true. Si se omite la clave, el envío está activo.
+    'activo'      => true,
     'host'        => 'smtp.gmail.com',
     'port'        => 465,
     'secure'      => 'ssl',
