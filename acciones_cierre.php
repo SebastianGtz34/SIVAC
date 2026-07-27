@@ -11,6 +11,7 @@ require_once 'includes/archivos.php';
 require_once 'includes/flujo.php';
 require_once 'includes/notificaciones.php';
 require_once 'includes/accesos.php';
+require_once 'includes/datos_alta.php';
 
 if (sivacPostDesbordado()) {
     echo json_encode(['success' => false, 'message' => 'El archivo excede el tamaño máximo permitido por el servidor.']);
@@ -152,6 +153,31 @@ switch ($accion) {
         }
 
         $idProp = (int)$prop['id'];
+
+        /**
+         * Le avisa al solicitante lo que contestó SU candidato. Es su vacante: se
+         * entera de que ya viene el ingreso, o de que se le cayó y hay que
+         * retomar la búsqueda.
+         */
+        $avisarSolicitante = function (bool $acepto, string $detalle) use ($conn, $c, $id) {
+            $sol = obtenerDatosEmpleado($conn, (int)$c['no_empleado_solicitante']);
+            notificarEvento($conn, $acepto ? 'propuesta_aceptada' : 'propuesta_rechazada', [
+                'destino_no_empleado' => (int)$c['no_empleado_solicitante'],
+                'id_candidato' => $id, 'id_vacante' => (int)$c['id_vacante'],
+                'titulo'  => ($acepto ? 'Propuesta aceptada — ' : 'Propuesta rechazada — ') . $c['nombre'],
+                'mensaje' => $c['folio'] . ' · ' . $detalle,
+                'url'     => 'contrataciones.php',
+                'correos' => $sol && $sol['correo'] ? [$sol['correo']] : [],
+                'correo_asunto' => 'SIVAC — Propuesta ' . ($acepto ? 'aceptada' : 'rechazada')
+                    . ' (' . $c['folio'] . ')',
+                'correo_titulo' => 'Respuesta del candidato',
+                'correo_html' => '<strong>' . htmlspecialchars($c['nombre']) . '</strong> '
+                    . ($acepto ? '<strong>aceptó</strong>' : '<strong>rechazó</strong>')
+                    . ' la propuesta para <strong>' . htmlspecialchars($c['puesto']) . '</strong> ('
+                    . htmlspecialchars($c['folio']) . ').<br><br>' . htmlspecialchars(ucfirst($detalle)) . '.',
+            ]);
+        };
+
         if ($respuesta === 'aceptada') {
             $updP = $conn->prepare("UPDATE propuestas SET estatus = 'aceptada', fecha_respuesta = NOW() WHERE id = ?");
             $updP->bind_param('i', $idProp);
@@ -165,6 +191,7 @@ switch ($accion) {
             $stmt = $conn->prepare("INSERT IGNORE INTO contrataciones (id_candidato, fecha_limite_documentos) VALUES (?, ?)");
             $stmt->bind_param('is', $id, $limite);
             $stmt->execute(); $stmt->close();
+            $avisarSolicitante(true, 'entra a documentación; entrega hasta el ' . date('d/m/Y', strtotime($limite)));
             responder(true, 'Propuesta aceptada. Candidato en documentación.');
         } elseif ($respuesta === 'rechazada') {
             $updP = $conn->prepare("UPDATE propuestas SET estatus = 'rechazada', fecha_respuesta = NOW() WHERE id = ?");
@@ -177,6 +204,7 @@ switch ($accion) {
             $stmt = $conn->prepare("UPDATE candidatos SET etapa_descarte = ?, motivo_descarte = 'Rechazó la propuesta' WHERE id = ?");
             $stmt->bind_param('si', $etapa, $id);
             $stmt->execute(); $stmt->close();
+            $avisarSolicitante(false, 'queda descartado; hay que retomar la búsqueda');
             responder(true, 'Propuesta rechazada; candidato descartado.');
         }
         responder(false, 'Respuesta inválida.');
@@ -307,6 +335,44 @@ switch ($accion) {
     // incorrecto se maneja con 'validar_documento' → rechazar (con motivo), y el
     // candidato lo vuelve a subir desde su portal.
 
+    case 'datos_alta': {
+        // Lo que el candidato capturó en su portal. RRHH necesita verlo ANTES de
+        // completar el alta: es lo que gestionPersonal va a jalar de mess_sivac.
+        $id = (int)($_POST['id'] ?? $_GET['id'] ?? 0);
+        if ($id <= 0) responder(false, 'Id inválido.');
+        $datos = sivacDatosAlta($conn, $id);
+        responder(true, '', [
+            'datos'   => $datos,
+            'faltan'  => sivacDatosAltaFaltantes($datos),
+            'catalogo_sangre' => sivacTiposSangre(),
+        ]);
+    }
+
+    case 'guardar_datos_alta': {
+        // Captura/corrección por parte de RRHH (el candidato puede no haberlos
+        // llenado, o haberse equivocado). Se permite mientras gestionPersonal no
+        // haya aplicado el alta: después la fila ya se consumió allá.
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id <= 0) responder(false, 'Id inválido.');
+        $c = ctxCandidato($conn, $id);
+        if (!$c) responder(false, 'Candidato no encontrado.');
+        if (!in_array($c['estatus'], ['documentacion', 'contratado'], true)) {
+            responder(false, 'El candidato todavía no está en documentación.');
+        }
+        $previos = sivacDatosAlta($conn, $id);
+        if ((int)($previos['alta_aplicada'] ?? 0) === 1) {
+            responder(false, 'El alta ya se aplicó en gestionPersonal; estos datos ya no se pueden cambiar aquí.');
+        }
+
+        $d = sivacSanearDatosAlta($_POST);
+        if ($d['error']) responder(false, $d['error']);
+        if (!sivacGuardarDatosAlta($conn, $id, $d)) responder(false, 'No se pudieron guardar los datos.');
+
+        $faltan = sivacDatosAltaFaltantes($d);
+        responder(true, $faltan ? 'Datos guardados. Falta: ' . implode(', ', $faltan) . '.' : 'Datos guardados.',
+                  ['faltan' => $faltan]);
+    }
+
     case 'registrar_fecha_ingreso': {
         $id    = (int)($_POST['id'] ?? 0);
         $fecha = trim($_POST['fecha_ingreso'] ?? '');
@@ -399,6 +465,15 @@ switch ($accion) {
         $rc = $stmt->get_result()->fetch_assoc(); $stmt->close();
         if ((int)$rc['validados'] < (int)$rc['req']) {
             responder(false, 'Faltan documentos obligatorios validados (' . (int)$rc['validados'] . '/' . (int)$rc['req'] . ').');
+        }
+
+        // Sin estos datos la fila que jala gestionPersonal llega vacía y el alta hay
+        // que teclearla a mano allá: se corta aquí, no después de haber avisado a
+        // medio mundo. Si el candidato no los capturó, RRHH los captura en el modal.
+        $faltan = sivacDatosAltaFaltantes(sivacDatosAlta($conn, $id));
+        if ($faltan) {
+            responder(false, 'Faltan datos del candidato para el alta: ' . implode(', ', $faltan)
+                . '. Captúralos en «Datos para el alta» antes de continuar.');
         }
 
         $r = cambiarEstatusCandidato($conn, $id, 'contratado', $noEmp, 'Alta completada. Fecha de ingreso ' . $ct['fecha_ingreso'] . '.');

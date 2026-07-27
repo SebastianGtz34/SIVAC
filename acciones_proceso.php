@@ -184,8 +184,9 @@ switch ($accion) {
             'destino_no_empleado' => (int)$c['no_empleado_solicitante'],
             'id_candidato' => $id, 'id_vacante' => (int)$c['id_vacante'],
             'titulo' => 'Entrevista con el jefe confirmada — ' . $c['nombre'],
-            'mensaje' => $c['puesto'] . ' · ' . $fechaFmt,
-            'url' => '../loginMaster/inicio.php',
+            'mensaje' => $c['folio'] . ' · ' . $fechaFmt . '; después registra el resultado',
+            // Su vista de solicitante: ahí mismo captura el resultado al terminar.
+            'url' => 'embed_solicitante.php',
             'correos' => $correos,
             'correo_asunto' => 'MESS — Entrevista confirmada (' . $c['folio'] . ')',
             'correo_titulo' => 'Entrevista con el jefe confirmada',

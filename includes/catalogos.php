@@ -27,6 +27,18 @@ if (!function_exists('catalogoRegiones')) {
         return $cache;
     }
 
+    /** Naves del catálogo de RRHH: [idNave => nombre]. Cacheado por request. */
+    function catalogoNaves(mysqli $conn): array {
+        static $cache = null;
+        if ($cache !== null) return $cache;
+        $cache = [];
+        $res = $conn->query("SELECT idNave, nave FROM mess_rrhh.nave ORDER BY nave");
+        if ($res) {
+            while ($r = $res->fetch_assoc()) $cache[(int)$r['idNave']] = $r['nave'];
+        }
+        return $cache;
+    }
+
     /** Puestos activos del catálogo: [id => nombre]. Cacheado por request. */
     function catalogoPuestos(mysqli $conn): array {
         static $cache = null;

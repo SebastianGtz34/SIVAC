@@ -67,11 +67,11 @@
             $('#campanaVacia').hide();
             items.forEach(function (it) {
                 var leidaCls = parseInt(it.leida) ? '' : ' font-weight-bold';
-                var html = '<a class="dropdown-item d-flex align-items-center notif-item' + leidaCls + '" href="'
+                var html = '<a class="dropdown-item d-flex align-items-start notif-item' + leidaCls + '" href="'
                     + (it.url ? escHtml(it.url) : '#') + '" data-id="' + it.id + '">'
-                    + '<div class="mr-3"><div class="icon-circle" style="background:var(--accent-soft)"><i class="fas fa-info text-primary"></i></div></div>'
+                    + '<div class="mr-3"><div class="icon-circle" style="background:var(--accent-soft)"><i class="fas fa-user-tie text-primary"></i></div></div>'
                     + '<div><div class="small text-gray-500">' + formatearFecha(it.fecha_creacion) + '</div>'
-                    + escHtml(it.titulo) + '</div></a>';
+                    + '<div style="white-space:normal">' + escHtml(it.texto || it.accion) + '</div></div></a>';
                 $('#campanaVacia').before(html);
             });
         });

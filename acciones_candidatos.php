@@ -11,6 +11,7 @@ require_once 'auth.php';
 require_once 'includes/archivos.php';
 require_once 'includes/flujo.php';
 require_once 'includes/notificaciones.php';
+require_once 'includes/catalogos.php';
 
 // Detecta POST que excedió post_max_size antes de tocar $_POST.
 if (sivacPostDesbordado()) {
@@ -33,6 +34,12 @@ function responder(bool $success, string $message = '', array $extra = []): void
  * Devuelve ['error'=>?string, 'fecha'=>?string, 'resultado'=>?string, 'observaciones'=>?string].
  * Todo es opcional al guardar; la obligatoriedad se exige al enviar al jefe.
  */
+/** id de catálogo (nave/region) del POST: entero positivo o null si viene vacío. */
+function idCatalogoOpcional(array $post, string $campo): ?int {
+    $v = (int)($post[$campo] ?? 0);
+    return $v > 0 ? $v : null;
+}
+
 function sanearConstanciaRrhh(array $post): array {
     $fechaRaw = trim($post['entrevista_rrhh_fecha'] ?? '');
     $fecha = $fechaRaw !== '' && strtotime($fechaRaw) ? date('Y-m-d', strtotime($fechaRaw)) : null;
@@ -170,10 +177,21 @@ switch ($accion) {
         responder(true, '', ['data' => $cand, 'historial' => $hist, 'citas' => $citas, 'propuestas' => $props, 'documentos' => $docs]);
     }
 
+    case 'catalogos': {
+        // Naves y regiones (viven en mess_rrhh) para los selects del form de candidato.
+        $naves = [];
+        foreach (catalogoNaves($conn) as $id => $nombre) { $naves[] = ['id' => $id, 'nave' => $nombre]; }
+        $regiones = [];
+        foreach (catalogoRegiones($conn) as $id => $nombre) { $regiones[] = ['id' => $id, 'region' => $nombre]; }
+        responder(true, '', ['naves' => $naves, 'regiones' => $regiones]);
+    }
+
     case 'crear': {
         $idVacante = (int)($_POST['id_vacante'] ?? 0);
         $nombre    = trim($_POST['nombre'] ?? '');
         $apellidos = trim($_POST['apellidos'] ?? '');
+        $nave      = idCatalogoOpcional($_POST, 'nave');
+        $region    = idCatalogoOpcional($_POST, 'region');
         $correo    = trim($_POST['correo'] ?? '');
         $telefono  = trim($_POST['telefono'] ?? '');
         // Constancia de la entrevista de RRHH (fuera del sistema). Opcional al
@@ -197,10 +215,10 @@ switch ($accion) {
         if (!$cv['ok']) responder(false, $cv['message']);
 
         $stmt = $conn->prepare(
-            "INSERT INTO candidatos (id_vacante, nombre, apellidos, correo, telefono, cv_archivo, cv_nombre_original, cv_tamano, entrevista_rrhh_fecha, entrevista_rrhh_resultado, entrevista_rrhh_observaciones, creador_por)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO candidatos (id_vacante, nombre, apellidos, correo, telefono, cv_archivo, cv_nombre_original, cv_tamano, entrevista_rrhh_fecha, entrevista_rrhh_resultado, entrevista_rrhh_observaciones, nave, region, creador_por)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         );
-        $stmt->bind_param('issssssisssi', $idVacante, $nombre, $apellidos, $correo, $telefono, $cv['nombre'], $cv['original'], $cv['tamano'], $entRrhhFecha, $entRrhhResVal, $entRrhhObsVal, $noEmp);
+        $stmt->bind_param('issssssisssiii', $idVacante, $nombre, $apellidos, $correo, $telefono, $cv['nombre'], $cv['original'], $cv['tamano'], $entRrhhFecha, $entRrhhResVal, $entRrhhObsVal, $nave, $region, $noEmp);
         $ok = $stmt->execute();
         $id = (int)$conn->insert_id;
         $stmt->close();
@@ -245,6 +263,8 @@ switch ($accion) {
         $apellidos= trim($_POST['apellidos'] ?? '');
         $correo   = trim($_POST['correo'] ?? '');
         $telefono = trim($_POST['telefono'] ?? '');
+        $nave     = idCatalogoOpcional($_POST, 'nave');
+        $region   = idCatalogoOpcional($_POST, 'region');
         $entRrhh = sanearConstanciaRrhh($_POST);
         if ($id <= 0) responder(false, 'Id inválido.');
         if ($nombre === '') responder(false, 'El nombre es obligatorio.');
@@ -252,8 +272,8 @@ switch ($accion) {
         if (!filter_var($correo, FILTER_VALIDATE_EMAIL)) responder(false, 'Correo inválido.');
         if ($entRrhh['error']) responder(false, $entRrhh['error']);
         [$entRrhhFecha, $entRrhhResVal, $entRrhhObsVal] = [$entRrhh['fecha'], $entRrhh['resultado'], $entRrhh['observaciones']];
-        $stmt = $conn->prepare("UPDATE candidatos SET nombre = ?, apellidos = ?, correo = ?, telefono = ?, entrevista_rrhh_fecha = ?, entrevista_rrhh_resultado = ?, entrevista_rrhh_observaciones = ? WHERE id = ?");
-        $stmt->bind_param('sssssssi', $nombre, $apellidos, $correo, $telefono, $entRrhhFecha, $entRrhhResVal, $entRrhhObsVal, $id);
+        $stmt = $conn->prepare("UPDATE candidatos SET nombre = ?, apellidos = ?, correo = ?, telefono = ?, entrevista_rrhh_fecha = ?, entrevista_rrhh_resultado = ?, entrevista_rrhh_observaciones = ?, nave = ?, region = ? WHERE id = ?");
+        $stmt->bind_param('sssssssiii', $nombre, $apellidos, $correo, $telefono, $entRrhhFecha, $entRrhhResVal, $entRrhhObsVal, $nave, $region, $id);
         $ok = $stmt->execute(); $stmt->close();
         if (!$ok) responder(false, 'No se pudo actualizar.');
         // Un "No apto" ya NO descarta solo (nadie se descarta sin botón explícito).
@@ -328,9 +348,11 @@ switch ($accion) {
             notificarEvento($conn, 'candidato_enviado', [
                 'destino_no_empleado' => (int)$c['no_empleado_solicitante'],
                 'id_vacante' => (int)$c['id_vacante'], 'id_candidato' => $idc,
-                'titulo' => 'Nuevo candidato para revisar — ' . $c['folio'],
-                'mensaje' => 'Vacante ' . $c['puesto'],
-                'url' => '../loginMaster/inicio.php',
+                'titulo' => 'Nuevo candidato para revisar — ' . $c['nombre'],
+                'mensaje' => $c['folio'] . ' · ' . $c['puesto'],
+                // Su vista de solicitante, aunque además sea de RRHH: aquí actúa
+                // como dueño de la vacante, y es donde aprueba o descarta el CV.
+                'url' => 'embed_solicitante.php',
                 'correos' => $sol && $sol['correo'] ? [$sol['correo']] : [],
                 'correo_asunto' => 'SIVAC — Candidato por revisar (' . $c['folio'] . ')',
                 'correo_titulo' => 'Candidato por revisar',
