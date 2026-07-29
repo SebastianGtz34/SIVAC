@@ -5,5 +5,5 @@
  * gestiona loginMaster/logout.php.
  */
 setcookie('noEmpleadoSVC', '', time() - 3600, '/');
-header('Location: ../loginMaster/index.php');
+header('Location: ../loginMaster/inicio.php');
 exit;
