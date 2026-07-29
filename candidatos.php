@@ -133,7 +133,8 @@ include 'encabezado.php';
         <button type="button" class="close" data-dismiss="modal">&times;</button></div>
       <div class="modal-body">
         <input type="hidden" name="id" id="cita_id">
-        <p class="text-muted small mb-3">Normalmente el jefe propone las fechas al aprobar el CV; usa esto para reprogramar. Se le enviarán las dos opciones al candidato.</p>
+        <p class="text-muted small mb-3">Normalmente el jefe propone las fechas al aprobar el CV; usa esto para reprogramar. Se le enviarán las dos opciones al candidato.
+           Basta con que las dos opciones sean distintas: pueden caer el <strong>mismo día a distinta hora</strong>.</p>
         <div class="form-group"><label>Opción 1 *</label>
           <input type="datetime-local" class="form-control" name="opcion1" id="cita_op1" required></div>
         <div class="form-group"><label>Opción 2 *</label>

@@ -264,6 +264,7 @@ $(function () {
         Swal.fire({
             title: 'Aprobar y proponer entrevista',
             html: '<p class="small text-muted mb-2">Ofrece dos opciones de fecha y hora para <strong>tu</strong> entrevista. '
+                + 'Pueden ser el <strong>mismo día a distinta hora</strong>; solo tienen que ser distintas y futuras.</p>'
                 + '<input type="datetime-local" id="sw_op1" class="swal2-input">'
                 + '<input type="datetime-local" id="sw_op2" class="swal2-input">'
                 + '<textarea id="sw_notas" class="swal2-textarea" placeholder="Comentarios para RRHH (opcional)."></textarea>',
