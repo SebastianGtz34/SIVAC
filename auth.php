@@ -31,8 +31,8 @@
  */
 
 // Único punto de configuración de los departamentos con acceso RRHH.
-// 26 = Business Intelligence, 27 = Recursos Humanos (mess_rrhh.departamento).
-define('SIVAC_DEPTS_RRHH', [26, 27]);
+// 27 = Business Intelligence, 47 = Recursos Humanos (mess_rrhh.departamento).
+define('SIVAC_DEPTS_RRHH', [27, 47]);
 
 if (!function_exists('sivacAuthNoEmpleado')) {
 
