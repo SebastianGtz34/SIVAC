@@ -38,6 +38,12 @@ $TRANS_VAC = [
 // Tipos de vacante válidos: whitelist única en includes/flujo.php
 // (SIVAC_TIPOS_VACANTE = temporal/permanente/practicas).
 
+// PILOTO: durante las pruebas el selector de solicitante sólo ofrece a estos
+// empleados, no al directorio completo. Es un filtro de UI (acción 'empleados');
+// crear/editar siguen aceptando cualquier empleado activo. Al terminar el piloto,
+// borrar la constante y el `IN (...)` de la acción 'empleados'.
+const SIVAC_PILOTO_SOLICITANTES = [183, 276, 523, 569, 403, 360, 487];
+
 /** Valida que un noEmpleado exista y esté activo en mess_rrhh.usuarios. */
 function empleadoActivo(mysqli $conn, int $no): ?array {
     $stmt = $conn->prepare("SELECT noEmpleado, nombre, departamento, region FROM mess_rrhh.usuarios WHERE noEmpleado = ? AND estatus = 1 LIMIT 1");
@@ -329,15 +335,18 @@ switch ($accion) {
     }
 
     case 'empleados': {
-        // Directorio para el selector de solicitante (empleados estatus).
+        // Directorio para el selector de solicitante (empleados estatus),
+        // acotado a los noEmpleado del piloto (SIVAC_PILOTO_SOLICITANTES).
         $q = trim($_POST['q'] ?? $_GET['q'] ?? '');
         $like = '%' . $q . '%';
+        $huecos = implode(',', array_fill(0, count(SIVAC_PILOTO_SOLICITANTES), '?'));
         $stmt = $conn->prepare(
             "SELECT noEmpleado, nombre, departamento FROM mess_rrhh.usuarios
-             WHERE estatus = 1 AND (nombre LIKE ? OR noEmpleado LIKE ?)
+             WHERE estatus = 1 AND noEmpleado IN ($huecos) AND (nombre LIKE ? OR noEmpleado LIKE ?)
              ORDER BY nombre LIMIT 50"
         );
-        $stmt->bind_param('ss', $like, $like);
+        $params = array_merge(SIVAC_PILOTO_SOLICITANTES, [$like, $like]);
+        $stmt->bind_param(str_repeat('i', count(SIVAC_PILOTO_SOLICITANTES)) . 'ss', ...$params);
         $stmt->execute();
         $res = $stmt->get_result();
         $data = [];
