@@ -42,7 +42,7 @@ $TRANS_VAC = [
 // empleados, no al directorio completo. Es un filtro de UI (acción 'empleados');
 // crear/editar siguen aceptando cualquier empleado activo. Al terminar el piloto,
 // borrar la constante y el `IN (...)` de la acción 'empleados'.
-const SIVAC_PILOTO_SOLICITANTES = [183, 276, 523, 569, 403, 360, 487];
+const SIVAC_PILOTO_SOLICITANTES = [183, 403, 360, 487];
 
 /** Valida que un noEmpleado exista y esté activo en mess_rrhh.usuarios. */
 function empleadoActivo(mysqli $conn, int $no): ?array {
