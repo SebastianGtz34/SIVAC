@@ -122,7 +122,18 @@ $(function () {
             toggleTemporal();   // muestra/oculta según el tipo precargado
             $('#vac_posiciones').val(v.posiciones);
             $('#vac_departamento').val(v.departamento);
-            $('#vac_solicitante').val(v.no_empleado_solicitante);
+            // El selector sólo lista jefes (usuarios.tipo_usr). Una vacante
+            // anterior a ese filtro puede tener un solicitante que ya no aparece:
+            // se le reinyecta su opción para no borrarle el dueño al guardar.
+            var $sol = $('#vac_solicitante');
+            $sol.find('option.solicitante-fuera-de-lista').remove();
+            $sol.val(v.no_empleado_solicitante);
+            if ($sol.val() === null && v.no_empleado_solicitante) {
+                $sol.append('<option class="solicitante-fuera-de-lista" value="' + v.no_empleado_solicitante + '">'
+                    + escHtml(v.solicitante_nombre || ('#' + v.no_empleado_solicitante))
+                    + ' (#' + v.no_empleado_solicitante + ')</option>');
+                $sol.val(v.no_empleado_solicitante);
+            }
             $('#vac_descripcion').val(v.descripcion);
             $('#modalVacanteTitulo').text('Editar vacante ' + v.folio);
             $('#modalVacante').modal('show');

@@ -38,11 +38,14 @@ $TRANS_VAC = [
 // Tipos de vacante válidos: whitelist única en includes/flujo.php
 // (SIVAC_TIPOS_VACANTE = temporal/permanente/practicas).
 
-// PILOTO: durante las pruebas el selector de solicitante sólo ofrece a estos
-// empleados, no al directorio completo. Es un filtro de UI (acción 'empleados');
-// crear/editar siguen aceptando cualquier empleado activo. Al terminar el piloto,
-// borrar la constante y el `IN (...)` de la acción 'empleados'.
-const SIVAC_PILOTO_SOLICITANTES = [183, 403, 360, 487];
+// Etiquetas de mess_rrhh.usuarios.tipo_usr que pueden ser dueños de una vacante:
+// el selector de solicitante ofrece a estos empleados, no al directorio completo.
+// Es un filtro de UI (acción 'empleados'); crear/editar siguen aceptando
+// cualquier empleado activo, para no perder al dueño de las vacantes anteriores
+// al filtro (el select les reinyecta su opción al editar, ver js/vacantes.js).
+// OJO: tipo_usr NO decide permisos —eso lo deriva auth.php de la jerarquía
+// usuarios.jefe—; aquí es sólo el criterio de a quién se le puede asignar.
+const SIVAC_TIPOS_SOLICITANTE = ['JEFE', 'JEFE_LAB', 'JEFE_ENCARGADO'];
 
 /** Valida que un noEmpleado exista y esté activo en mess_rrhh.usuarios. */
 function empleadoActivo(mysqli $conn, int $no): ?array {
@@ -335,18 +338,18 @@ switch ($accion) {
     }
 
     case 'empleados': {
-        // Directorio para el selector de solicitante (empleados estatus),
-        // acotado a los noEmpleado del piloto (SIVAC_PILOTO_SOLICITANTES).
+        // Directorio para el selector de solicitante: empleados activos cuya
+        // etiqueta tipo_usr está en SIVAC_TIPOS_SOLICITANTE (los jefes).
         $q = trim($_POST['q'] ?? $_GET['q'] ?? '');
         $like = '%' . $q . '%';
-        $huecos = implode(',', array_fill(0, count(SIVAC_PILOTO_SOLICITANTES), '?'));
+        $huecos = implode(',', array_fill(0, count(SIVAC_TIPOS_SOLICITANTE), '?'));
         $stmt = $conn->prepare(
             "SELECT noEmpleado, nombre, departamento FROM mess_rrhh.usuarios
-             WHERE estatus = 1 AND noEmpleado IN ($huecos) AND (nombre LIKE ? OR noEmpleado LIKE ?)
+             WHERE estatus = 1 AND tipo_usr IN ($huecos) AND (nombre LIKE ? OR noEmpleado LIKE ?)
              ORDER BY nombre LIMIT 50"
         );
-        $params = array_merge(SIVAC_PILOTO_SOLICITANTES, [$like, $like]);
-        $stmt->bind_param(str_repeat('i', count(SIVAC_PILOTO_SOLICITANTES)) . 'ss', ...$params);
+        $params = array_merge(SIVAC_TIPOS_SOLICITANTE, [$like, $like]);
+        $stmt->bind_param(str_repeat('s', count(SIVAC_TIPOS_SOLICITANTE)) . 'ss', ...$params);
         $stmt->execute();
         $res = $stmt->get_result();
         $data = [];
