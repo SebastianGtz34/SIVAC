@@ -46,8 +46,34 @@ $(function () {
         });
     }
 
+    /**
+     * Etiqueta de contexto: deja claro de QUÉ vacante son los candidatos de la
+     * tabla. Sin ella el único indicio era el select de la esquina, que se
+     * perdía al llegar desde Vacantes con ?vacante=N.
+     */
+    function pintarEtiquetaVacante() {
+        var idv = $('#filtroVacante').val() || '';
+        var $et = $('#etiquetaVacante');
+        if (!idv) {
+            $et.addClass('d-none');
+            $('#tituloTablaCandidatos').text('Candidatos');
+            return;
+        }
+        var v = vacantesCache.filter(function (x) { return String(x.id) === String(idv); })[0];
+        if (!v) { $et.addClass('d-none'); return; }   // catálogo aún sin cargar
+        var estatusS_VAC = window.SIVAC_estatusS_VAC || {};
+        $('#etiquetaVacantePuesto').text(v.puesto);
+        $('#etiquetaVacanteBadge').html(badgeestatusVacante(v.estatus, estatusS_VAC[v.estatus] || v.estatus));
+        $('#etiquetaVacanteFolio').text(
+            v.folio + ' · ' + ((window.SIVAC_TIPOS_VACANTE && window.SIVAC_TIPOS_VACANTE[v.tipo]) || v.tipo)
+        );
+        $('#tituloTablaCandidatos').text('Candidatos de ' + v.folio);
+        $et.removeClass('d-none');
+    }
+
     function cargar() {
         var idv = $('#filtroVacante').val() || '';
+        pintarEtiquetaVacante();
         ajaxPost('acciones_candidatos.php', { accion: 'listar', id_vacante: idv }, function (err, res) {
             tabla.clear();
             $('#chkTodos').prop('checked', false);
@@ -110,6 +136,10 @@ $(function () {
     }
 
     $('#filtroVacante').on('change', cargar);
+    $('#btnTodasVacantes').on('click', function () {
+        $('#filtroVacante').val('');
+        cargar();
+    });
     $('#tablaCandidatos tbody').on('change', '.chkCand', actualizarBtnEnviar);
     $('#chkTodos').on('change', function () {
         $('.chkCand').prop('checked', $(this).prop('checked'));

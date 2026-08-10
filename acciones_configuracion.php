@@ -6,6 +6,7 @@
 header('Content-Type: application/json; charset=utf-8');
 require_once 'conn.php';
 require_once 'auth.php';
+require_once 'includes/alta_avisos.php';   // sivacAreasAlta(): claves válidas
 
 $noEmp = requiereSesionJson();
 requiereRRHHJson($conn, $noEmp);
@@ -44,23 +45,27 @@ switch ($accion) {
 
     /* ---- Destinatarios de aviso de alta ---- */
     case 'listar_destinatarios': {
-        $res = $conn->query("SELECT id, area, correo, activo FROM notificaciones_destinatarios ORDER BY area");
+        $res = $conn->query("SELECT id, clave, area, correo, activo FROM notificaciones_destinatarios ORDER BY clave, area");
         $data = []; while ($r = $res->fetch_assoc()) $data[] = $r;
         responder(true, '', ['data' => $data]);
     }
     case 'guardar_destinatario': {
         $id     = (int)($_POST['id'] ?? 0);
+        $clave  = trim($_POST['clave'] ?? '');
         $area   = trim($_POST['area'] ?? '');
         $correo = trim($_POST['correo'] ?? '');
         $activo = !empty($_POST['activo']) ? 1 : 0;
         if ($area === '') responder(false, 'El área es obligatoria.');
+        // La clave decide qué cuerpo de correo recibe: si no es una de las
+        // conocidas, esa fila nunca recibiría nada y nadie se enteraría.
+        if (!array_key_exists($clave, sivacAreasAlta())) responder(false, 'Selecciona qué aviso recibe.');
         if (!filter_var($correo, FILTER_VALIDATE_EMAIL)) responder(false, 'Correo inválido.');
         if ($id > 0) {
-            $stmt = $conn->prepare("UPDATE notificaciones_destinatarios SET area = ?, correo = ?, activo = ? WHERE id = ?");
-            $stmt->bind_param('ssii', $area, $correo, $activo, $id);
+            $stmt = $conn->prepare("UPDATE notificaciones_destinatarios SET clave = ?, area = ?, correo = ?, activo = ? WHERE id = ?");
+            $stmt->bind_param('sssii', $clave, $area, $correo, $activo, $id);
         } else {
-            $stmt = $conn->prepare("INSERT INTO notificaciones_destinatarios (area, correo, activo) VALUES (?, ?, ?)");
-            $stmt->bind_param('ssi', $area, $correo, $activo);
+            $stmt = $conn->prepare("INSERT INTO notificaciones_destinatarios (clave, area, correo, activo) VALUES (?, ?, ?, ?)");
+            $stmt->bind_param('sssi', $clave, $area, $correo, $activo);
         }
         $ok = $stmt->execute(); $stmt->close();
         responder($ok, $ok ? 'Destinatario guardado.' : 'No se pudo guardar.');

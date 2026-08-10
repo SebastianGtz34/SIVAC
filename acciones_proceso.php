@@ -171,14 +171,15 @@ switch ($accion) {
             . ($notas !== '' ? ' Notas: ' . $notas : ''));
         if (!$r['ok']) responder(false, $r['message']);
 
-        // Correos: al candidato y al solicitante (es su entrevista).
-        $sol = obtenerDatosEmpleado($conn, (int)$c['no_empleado_solicitante']);
+        // Correo SÓLO al candidato: es el único que no tiene campana. El jefe se
+        // entera por la suya, con la fecha y el siguiente paso. Antes se le mandaba
+        // a él la misma carta, que iba dirigida al candidato ("Hola <nombre>…").
         $fechaFmt = date('d/m/Y H:i', strtotime($fecha));
         $cuerpoCand = 'Hola ' . htmlspecialchars($c['nombre']) . ',<br><br>Tu <strong>'
             . 'entrevista con el jefe</strong> para la vacante <strong>'
             . htmlspecialchars($c['puesto']) . '</strong> quedó confirmada para el <strong>' . $fechaFmt . '</strong>.'
             . ($notas !== '' ? '<br><br>Notas: ' . htmlspecialchars($notas) : '');
-        $correos = array_filter([$c['correo'], $sol['correo'] ?? '']);
+        $correos = array_filter([$c['correo']]);
 
         notificarEvento($conn, 'entrevista_confirmada', [
             'destino_no_empleado' => (int)$c['no_empleado_solicitante'],

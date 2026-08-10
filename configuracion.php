@@ -34,6 +34,7 @@ include 'encabezado.php';
             <button class="btn btn-primary btn-sm mb-3" id="btnNuevoDest"><i class="fas fa-plus mr-1"></i>Nuevo destinatario</button>
             <table class="table table-sm" id="tablaDest">
                 <thead><tr><th>Área</th><th>Correo</th><th class="text-center">Activo</th><th></th></tr></thead>
+                <caption class="small text-muted">Un área puede tener varias personas: agrega una fila por cada una con el mismo aviso.</caption>
                 <tbody></tbody>
             </table>
         </div></div>
@@ -81,7 +82,19 @@ include 'encabezado.php';
         <button type="button" class="close" data-dismiss="modal">&times;</button></div>
       <div class="modal-body">
         <input type="hidden" id="dest_id">
-        <div class="form-group"><label>Área *</label><input type="text" class="form-control" id="dest_area" required></div>
+        <!-- La clave decide QUÉ correo recibe: cada área del alta pide datos
+             distintos. Puede haber varias personas con la misma clave. -->
+        <div class="form-group"><label>Aviso que recibe *</label>
+          <select class="form-control" id="dest_clave" required>
+            <option value="nominas">Nóminas — sueldo y datos personales</option>
+            <option value="gastos">Cuenta de gastos — viáticos y celular</option>
+            <option value="marketing">Marketing — difusión</option>
+            <option value="sistemas">Sistemas — correo, SCOT y equipo</option>
+            <option value="almacen">Almacén — herramientas</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Área *</label><input type="text" class="form-control" id="dest_area" required>
+          <small class="form-text text-muted">Sólo la etiqueta que se muestra en pantalla.</small></div>
         <div class="form-group"><label>Correo *</label><input type="email" class="form-control" id="dest_correo" required></div>
         <div class="form-check"><input type="checkbox" class="form-check-input" id="dest_activo" checked><label class="form-check-label" for="dest_activo">Activo</label></div>
       </div>

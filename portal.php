@@ -83,6 +83,14 @@ function estadoDoc(?array $doc): string {
 </head>
 <body class="embed">
 <div class="container" style="max-width:820px">
+
+<!-- Membrete: es la única pantalla que ve alguien de fuera de la empresa, así que
+     tiene que verse de MESS y no como un formulario anónimo pidiéndole su CURP. -->
+<div class="portal-marca">
+    <img src="<?= sivacAsset('img/logo_mess.png') ?>" alt="Grupo MESS">
+    <span class="portal-marca-sistema">Reclutamiento y contratación</span>
+</div>
+
 <?php if (!$valido): ?>
     <div class="text-center" style="padding:64px 16px">
         <i class="fas fa-link-slash fa-3x text-muted mb-3"></i>

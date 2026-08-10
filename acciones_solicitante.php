@@ -102,20 +102,15 @@ switch ($accion) {
         $rrhh = sivacEmpleadosRRHH($conn);
         $jefe = obtenerDatosEmpleado($conn, $noEmp);
         $nombreJefe = $jefe['nombre'] ?? ('Empleado #' . $noEmp);
+        // Sólo campana: es un aviso interno y el correo se reserva para el
+        // candidato, que no tiene otra vía de enterarse (ver includes/notificaciones.php).
         notificarEvento($conn, 'requisicion_pendiente', [
             'destinos_no_empleado' => array_column($rrhh, 'noEmpleado'),
             'id_vacante' => $idVac,
             'titulo'  => 'Requisición pendiente de VoBo — ' . $folio,
-            'mensaje' => $puesto . ' · la levantó ' . $nombreJefe,
+            'mensaje' => $puesto . ' · la levantó ' . $nombreJefe
+                . ' · ' . (int)$posiciones . ' posición(es), ' . $tipo,
             'url'     => 'vacantes.php',
-            'correos' => array_values(array_filter(array_column($rrhh, 'correo'))),
-            'correo_asunto' => 'SIVAC — Requisición pendiente de visto bueno (' . $folio . ')',
-            'correo_titulo' => 'Requisición pendiente de VoBo',
-            'correo_html' => '<strong>' . htmlspecialchars($nombreJefe) . '</strong> levantó una requisición de <strong>'
-                . htmlspecialchars($puesto) . '</strong> (' . htmlspecialchars($folio) . ', '
-                . (int)$posiciones . ' posición(es), ' . htmlspecialchars($tipo) . ').<br><br>'
-                . '<strong>Justificación:</strong> ' . nl2br(htmlspecialchars($justificacion))
-                . '<br><br>Queda pendiente del visto bueno de RRHH para poder abrirse.',
         ]);
 
         responder(true, 'Requisición enviada (' . $folio . '). Queda pendiente del visto bueno de RRHH.',
@@ -215,28 +210,18 @@ switch ($accion) {
         $stmt->bind_param('i', $id); $stmt->execute();
         $info = $stmt->get_result()->fetch_assoc(); $stmt->close();
         if ($info) {
-            $rrhh = obtenerDatosEmpleado($conn, (int)$info['no_empleado_creador']);
             // El jefe ya propuso las dos fechas; el siguiente paso de RRHH es
             // confirmar cuál eligió el candidato. Las fechas van EN el aviso: es lo
             // que RRHH necesita para avisarle al candidato, sin abrir la ficha.
             $fmt1 = date('d/m/Y H:i', $t1); $fmt2 = date('d/m/Y H:i', $t2);
             $siguiente = 'confirmar cuál de las dos fechas eligió el candidato';
             notificarEvento($conn, 'entrevista_disponibilidad', [
-                'destino_no_empleado' => (int)$info['no_empleado_creador'],
+                'destinos_no_empleado' => sivacDestinosRRHH($conn),
                 'id_candidato' => $id, 'id_vacante' => (int)$info['id_vacante'],
                 'titulo' => 'CV aprobado con fechas de entrevista — ' . $info['nombre'],
-                'mensaje' => $info['folio'] . ' · ' . $fmt1 . ' o ' . $fmt2 . '; ' . $siguiente,
+                'mensaje' => $info['folio'] . ' · ' . $fmt1 . ' o ' . $fmt2 . '; ' . $siguiente
+                    . ($notas !== '' ? ' · ' . $notas : ''),
                 'url' => 'candidatos.php',
-                'correos' => $rrhh && $rrhh['correo'] ? [$rrhh['correo']] : [],
-                'correo_asunto' => 'SIVAC — CV aprobado por el solicitante (' . $info['folio'] . ')',
-                'correo_titulo' => 'CV aprobado',
-                'correo_html' => 'El solicitante aprobó el CV de <strong>' . htmlspecialchars($info['nombre'])
-                    . '</strong> para la vacante <strong>' . htmlspecialchars($info['puesto'])
-                    . '</strong> y registró estas dos fechas para la entrevista:<br><br>'
-                    . '<strong>Opción 1:</strong> ' . $fmt1 . '<br>'
-                    . '<strong>Opción 2:</strong> ' . $fmt2
-                    . ($notas !== '' ? '<br><br><strong>Comentarios del solicitante:</strong> ' . htmlspecialchars($notas) : '')
-                    . '<br><br>Siguiente paso: ' . $siguiente . '.',
             ]);
         }
         responder(true, 'CV aprobado y disponibilidad registrada.');
@@ -269,18 +254,12 @@ switch ($accion) {
         $stmt->bind_param('i', $id); $stmt->execute();
         $info = $stmt->get_result()->fetch_assoc(); $stmt->close();
         if ($info) {
-            $rrhh = obtenerDatosEmpleado($conn, (int)$info['no_empleado_creador']);
             notificarEvento($conn, 'cv_descartado', [
-                'destino_no_empleado' => (int)$info['no_empleado_creador'],
+                'destinos_no_empleado' => sivacDestinosRRHH($conn),
                 'id_candidato' => $id, 'id_vacante' => (int)$info['id_vacante'],
                 'titulo' => 'CV descartado — ' . $info['nombre'],
                 'mensaje' => $info['folio'] . ': ' . $motivo,
                 'url' => 'candidatos.php',
-                'correos' => $rrhh && $rrhh['correo'] ? [$rrhh['correo']] : [],
-                'correo_asunto' => 'SIVAC — CV descartado por el solicitante (' . $info['folio'] . ')',
-                'correo_titulo' => 'CV descartado',
-                'correo_html' => 'El solicitante descartó el CV de <strong>' . htmlspecialchars($info['nombre'])
-                    . '</strong>.<br><br><strong>Motivo:</strong> ' . htmlspecialchars($motivo),
             ]);
         }
         responder(true, 'Candidato descartado.');
@@ -319,26 +298,28 @@ switch ($accion) {
         $updCi->execute(); $updCi->close();
 
         $sufijoNotas = $notas !== '' ? ' Notas: ' . $notas : '';
-        $rrhh = obtenerDatosEmpleado($conn, (int)$c['no_empleado_creador']);
-        $correosRrhh = $rrhh && $rrhh['correo'] ? [$rrhh['correo']] : [];
+        $destinosRrhh = sivacDestinosRRHH($conn);
 
         if ($resultado === 'aceptado') {
+            // La lista de herramientas se la pasa el jefe a Almacén por su cuenta;
+            // SIVAC sólo guarda si ya lo hizo, para decírselo a Almacén en el aviso
+            // del alta. Se pregunta aquí porque es cuando el jefe ya sabe que esta
+            // persona entra y qué va a necesitar.
+            $herramientas = !empty($_POST['herramientas']) ? 1 : 0;
+            $updH = $conn->prepare("UPDATE candidatos SET herramientas_notificadas = ? WHERE id = ?");
+            $updH->bind_param('ii', $herramientas, $id);
+            $updH->execute(); $updH->close();
+
             $r = cambiarEstatusCandidato($conn, $id, 'entrevistado', $noEmp,
                 'Entrevista con el jefe realizada: aprobado.' . $sufijoNotas);
             if (!$r['ok']) responder(false, $r['message']);
             notificarEvento($conn, 'entrevista_resultado', [
-                'destino_no_empleado' => (int)$c['no_empleado_creador'],
+                'destinos_no_empleado' => $destinosRrhh,
                 'id_candidato' => $id, 'id_vacante' => (int)$c['id_vacante'],
                 'titulo' => 'Entrevistado por el jefe — ' . $c['nombre'],
-                'mensaje' => $c['folio'] . ' · ' . $c['puesto'] . ': aprobado, continúa el cierre.',
+                'mensaje' => $c['folio'] . ' · ' . $c['puesto'] . ': aprobado, continúa el cierre.'
+                    . $sufijoNotas,
                 'url' => 'candidatos.php',
-                'correos' => $correosRrhh,
-                'correo_asunto' => 'SIVAC — El jefe entrevistó a un candidato (' . $c['folio'] . ')',
-                'correo_titulo' => 'Resultado de la entrevista del jefe',
-                'correo_html' => 'El solicitante marcó como <strong>aprobado</strong> a <strong>'
-                    . htmlspecialchars($c['nombre']) . '</strong> tras la entrevista.'
-                    . ($notas !== '' ? '<br><br><strong>Notas:</strong> ' . htmlspecialchars($notas) : '')
-                    . '<br><br>Siguiente paso: continuar el cierre (propuesta o documentación).',
             ]);
             responder(true, 'Registraste al candidato como entrevistado.');
         }
@@ -353,17 +334,11 @@ switch ($accion) {
             $stmt->bind_param('ssi', $etapa, $motivo, $id);
             $stmt->execute(); $stmt->close();
             notificarEvento($conn, 'entrevista_resultado', [
-                'destino_no_empleado' => (int)$c['no_empleado_creador'],
+                'destinos_no_empleado' => $destinosRrhh,
                 'id_candidato' => $id, 'id_vacante' => (int)$c['id_vacante'],
                 'titulo' => 'Descartado tras la entrevista — ' . $c['nombre'],
                 'mensaje' => $c['folio'] . ': ' . $motivo,
                 'url' => 'candidatos.php',
-                'correos' => $correosRrhh,
-                'correo_asunto' => 'SIVAC — Candidato descartado por el jefe (' . $c['folio'] . ')',
-                'correo_titulo' => 'Descartado tras la entrevista del jefe',
-                'correo_html' => 'El solicitante <strong>descartó</strong> a <strong>'
-                    . htmlspecialchars($c['nombre']) . '</strong> tras la entrevista.'
-                    . '<br><br><strong>Motivo:</strong> ' . htmlspecialchars($motivo),
             ]);
             responder(true, 'Candidato descartado.');
         }

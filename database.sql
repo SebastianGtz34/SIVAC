@@ -118,8 +118,12 @@ CREATE TABLE IF NOT EXISTS candidatos (
     psicometrico_observaciones TEXT NULL COMMENT 'psicométrico: observaciones',
     etapa_descarte  VARCHAR(50) NULL COMMENT 'etapa en la que fue descartado',
     motivo_descarte TEXT NULL,
-    nave    INT UNSIGNED NULL COMMENT 'id de mess_rrhh.nave (catálogo, sin FK); lo asigna RRHH, viaja al alta',
+    nave    INT UNSIGNED NULL COMMENT 'id de mess_rrhh.nave (catálogo, sin FK); lo asigna RRHH, viaja al alta como SEDE',
     region  INT UNSIGNED NULL COMMENT 'id de mess_rrhh.region (catálogo, sin FK); asignación para el alta',
+    -- La lista de herramientas se la pasa el JEFE a Almacén por su cuenta; SIVAC
+    -- sólo guarda que ya lo hizo, para decírselo a Almacén en el aviso del alta.
+    -- Lo marca el jefe al aprobar al candidato en su entrevista.
+    herramientas_notificadas TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'el jefe ya envió la lista de herramientas a Almacén',
     creador_por  INT UNSIGNED NOT NULL,
     fecha_creacion      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     fecha_actualizacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -215,7 +219,14 @@ CREATE TABLE IF NOT EXISTS contrataciones (
     fecha_limite_documentos DATE NULL,
     prorrogas     INT UNSIGNED NOT NULL DEFAULT 0,
     reglamento_enviado DATETIME NULL COMMENT 'cuándo se envió el reglamento de ingreso',
-    alta_notificada    DATETIME NULL COMMENT 'cuándo se avisó a TI/viáticos/teléfono/marketing',
+    alta_notificada    DATETIME NULL COMMENT 'cuándo se avisó a las áreas del catálogo',
+    -- Datos que sólo sirven para los avisos del alta: los teclea RRHH al
+    -- completar la contratación, no salen de ningún otro lado del proceso.
+    -- El sueldo va a Nóminas; los tres flags a Cuenta de gastos y a Sistemas.
+    sueldo        VARCHAR(100) NULL COMMENT 'sueldo pactado — sólo para el aviso a Nóminas',
+    req_viaticos  TINYINT(1) NOT NULL DEFAULT 0 COMMENT '¿necesita tarjeta de viáticos?',
+    req_celular   TINYINT(1) NOT NULL DEFAULT 0 COMMENT '¿necesita celular?',
+    req_equipo    TINYINT(1) NOT NULL DEFAULT 0 COMMENT '¿necesita computadora o laptop?',
     estatus       ENUM('documentacion','completada','cancelada')
                   NOT NULL DEFAULT 'documentacion',
     notas         TEXT NULL,
@@ -274,13 +285,21 @@ CREATE TABLE IF NOT EXISTS documentos (
 
 -- ----------------------------------------------------------------------------
 -- Catálogo de destinatarios de aviso al completar un alta
+--
+-- `clave` dice QUÉ correo recibe cada quien: cada área pide datos distintos
+-- (Nóminas quiere el sueldo, Sistemas los accesos, Almacén las herramientas),
+-- así que el cuerpo se arma por clave — ver sivacCorreosAlta() en
+-- includes/alta_avisos.php. `area` es sólo la etiqueta que se muestra.
+-- Puede haber VARIAS filas con la misma clave (p. ej. Sistemas son dos personas).
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS notificaciones_destinatarios (
     id     INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    clave  VARCHAR(20) NOT NULL DEFAULT '' COMMENT 'nominas|gastos|marketing|sistemas|almacen',
     area   VARCHAR(100) NOT NULL,
     correo VARCHAR(150) NOT NULL,
     activo TINYINT(1) NOT NULL DEFAULT 1,
-    PRIMARY KEY (id)
+    PRIMARY KEY (id),
+    KEY idx_dest_clave (clave)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ----------------------------------------------------------------------------
@@ -390,8 +409,13 @@ INSERT IGNORE INTO documentos_tipos (nombre, obligatorio, estatus) VALUES
     ('Fotografía', 0, 1),
     ('Carta de recomendación', 0, 1);
 
-INSERT IGNORE INTO notificaciones_destinatarios (id, area, correo, activo) VALUES
-    (1, 'TI',        'ti@mess.com.mx',        1),
-    (2, 'Viáticos',  'viaticos@mess.com.mx',  1),
-    (3, 'Teléfono',  'telefono@mess.com.mx',  1),
-    (4, 'Marketing', 'marketing@mess.com.mx', 1);
+-- Las 5 áreas que se avisan al completar un alta. El CORREO va vacío a
+-- propósito: lo carga RRHH desde Configuración → Destinatarios (cada área puede
+-- tener más de una persona). Mientras esté vacío, esa área simplemente no recibe
+-- el aviso y `completar_alta` lo reporta como pendiente en vez de fallar.
+INSERT IGNORE INTO notificaciones_destinatarios (id, clave, area, correo, activo) VALUES
+    (1, 'nominas',   'Nóminas',          '', 1),
+    (2, 'gastos',    'Cuenta de gastos', '', 1),
+    (3, 'marketing', 'Marketing',        '', 1),
+    (4, 'sistemas',  'Sistemas',         '', 1),
+    (5, 'almacen',   'Almacén',          '', 1);

@@ -34,6 +34,12 @@
 // 27 = Business Intelligence, 47 = Recursos Humanos (mess_rrhh.departamento).
 define('SIVAC_DEPTS_RRHH', [27, 47]);
 
+// Departamentos que RECIBEN los avisos internos. Es un subconjunto del anterior:
+// BI entra a SIVAC como súper-usuario (soporte y desarrollo), pero no lleva el
+// proceso de reclutamiento, así que no se le llena la campana. ACCESO y AVISOS
+// son cosas distintas: no unificar estas dos constantes.
+define('SIVAC_DEPTS_NOTIF', [47]);
+
 if (!function_exists('sivacAuthNoEmpleado')) {
 
     /** noEmpleado de la sesión (cookie propia o global del portal) o null. */
@@ -89,14 +95,15 @@ if (!function_exists('sivacAuthNoEmpleado')) {
     }
 
     /**
-     * Empleados de RRHH/Reclutamiento activos: [['noEmpleado'=>int,'correo'=>string], …].
-     * Se usa para los avisos que no tienen un dueño concreto (una requisición
-     * pendiente de VoBo todavía no es de nadie). Cacheado por request.
+     * Empleados que reciben los avisos internos: [['noEmpleado'=>int,'correo'=>string], …].
+     * Son los de SIVAC_DEPTS_NOTIF (Recursos Humanos), NO todos los que tienen
+     * acceso: BI entra como súper-usuario pero no lleva el proceso. Cacheado por
+     * request.
      */
     function sivacEmpleadosRRHH(mysqli $conn): array {
         static $cache = null;
         if ($cache !== null) return $cache;
-        $placeholders = implode(',', array_map('intval', SIVAC_DEPTS_RRHH));
+        $placeholders = implode(',', array_map('intval', SIVAC_DEPTS_NOTIF));
         $res = $conn->query(
             "SELECT noEmpleado, correo FROM mess_rrhh.usuarios
              WHERE departamento IN ($placeholders) AND estatus = 1"
@@ -108,6 +115,18 @@ if (!function_exists('sivacAuthNoEmpleado')) {
             }
         }
         return $cache;
+    }
+
+    /**
+     * noEmpleado del departamento de RRHH, para dirigir los avisos internos.
+     *
+     * Los avisos "para RRHH" van al DEPARTAMENTO, no a la persona que registró al
+     * candidato: quien lo dio de alta puede estar de vacaciones, haber cambiado de
+     * área o simplemente no ser quien da el siguiente paso. Es el mismo criterio
+     * que ya usaba la requisición pendiente de VoBo.
+     */
+    function sivacDestinosRRHH(mysqli $conn): array {
+        return array_column(sivacEmpleadosRRHH($conn), 'noEmpleado');
     }
 
     /** Rol RRHH requerido (PÁGINAS): rebota al portal si no lo tiene. */

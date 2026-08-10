@@ -106,6 +106,44 @@ include 'encabezado.php';
             <button type="submit" class="btn btn-outline-primary btn-sm"><i class="fas fa-save mr-1"></i>Guardar datos</button>
           </form>
 
+          <!-- ── Avisos del alta ──
+               Lo último antes de cerrar: qué se les dice a las áreas y a cuáles.
+               El sueldo y los tres requerimientos no salen de ningún otro lado
+               del proceso; las casillas evitan avisarle a Almacén de un alta
+               administrativa. -->
+          <hr class="my-3">
+          <h6>Avisos a las áreas</h6>
+          <p class="small text-muted mb-2">
+            <i class="fas fa-info-circle mr-1"></i>Se envía un correo <strong>por área</strong>,
+            cada uno con los datos que esa área pide. Desmarca las que no apliquen.
+          </p>
+          <form id="formAvisosAlta">
+            <div class="form-row">
+              <div class="form-group col-7"><label class="small mb-1">Sueldo <span class="text-danger">*</span></label>
+                <input type="text" class="form-control form-control-sm" id="alta_sueldo" maxlength="100"
+                       placeholder="Lo pide Nóminas"></div>
+            </div>
+            <div class="form-group mb-2">
+              <label class="small mb-1 d-block">Requerimientos</label>
+              <div class="form-check form-check-inline">
+                <input class="form-check-input" type="checkbox" id="alta_viaticos">
+                <label class="form-check-label small" for="alta_viaticos">Tarjeta de viáticos</label>
+              </div>
+              <div class="form-check form-check-inline">
+                <input class="form-check-input" type="checkbox" id="alta_celular">
+                <label class="form-check-label small" for="alta_celular">Celular</label>
+              </div>
+              <div class="form-check form-check-inline">
+                <input class="form-check-input" type="checkbox" id="alta_equipo">
+                <label class="form-check-label small" for="alta_equipo">Computadora o laptop</label>
+              </div>
+            </div>
+            <div class="form-group mb-0">
+              <label class="small mb-1 d-block">¿A qué áreas se avisa?</label>
+              <div id="alta_areas" class="small"></div>
+            </div>
+          </form>
+
           <button class="btn btn-success btn-block mt-3" id="btnCompletarAlta"><i class="fas fa-user-check mr-1"></i>Completar alta</button>
         </div>
         <div class="col-md-6">
