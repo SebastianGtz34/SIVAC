@@ -116,13 +116,40 @@ $(function () {
     var puedeSolicitar = <?= $puedeSolicitar ? 'true' : 'false' ?>;
     var candidatosData = [];   // caché de mis_candidatos (se filtra por vacante)
     var vacSel = 0;            // vacante seleccionada (master-detalle)
+    var hayVacantes = false;   // para que el bloque de abajo no pida "selecciona una"
 
     function cargarVacantes() {
         ajaxPost('acciones_solicitante.php', { accion: 'mis_vacantes' }, function (err, res) {
             var $c = $('#misVacantes').empty();
-            if (err || !res || !res.success || !res.data.length) {
-                $c.html('<div class="col-12 text-muted small">No tienes vacantes asignadas.</div>'); return;
+            if (err || !res || !res.success) {
+                hayVacantes = false;
+                $c.html('<div class="col-12 text-danger small">'
+                    + '<i class="fas fa-exclamation-triangle mr-1"></i>No se pudieron cargar tus vacantes. '
+                    + 'Recarga la página; si sigue igual, avisa a RRHH.</div>');
+                renderCandidatos();
+                return;
             }
+            // Vacío ≠ error. Aquí se listan SÓLO las vacantes en las que la sesión
+            // es el solicitante: si RRHH abrió una para el área pero puso a otra
+            // persona, esta pantalla se ve vacía y nadie sabe por qué. Se dice
+            // explícitamente, con el número de empleado que SIVAC está leyendo,
+            // para que se pueda comparar contra el dueño real de la vacante.
+            if (!res.data.length) {
+                hayVacantes = false;
+                $c.html('<div class="col-12"><div class="alert alert-info mb-0 small">'
+                    + '<i class="fas fa-info-circle mr-1"></i>'
+                    + 'Todavía no hay ninguna vacante <strong>a tu nombre</strong> (empleado #'
+                    + escHtml(String(miNoEmpleado() || '?')) + ').'
+                    + '<br>Si RRHH ya abrió una para tu área, pídeles que te registren como '
+                    + '<strong>solicitante</strong>: sólo así aparece aquí.'
+                    + (puedeSolicitar
+                        ? '<br>También puedes levantar la tuya con <strong>Solicitar vacante</strong>, arriba a la derecha.'
+                        : '')
+                    + '</div></div>');
+                renderCandidatos();
+                return;
+            }
+            hayVacantes = true;
             res.data.forEach(function (v) {
                 // Una requisición pendiente o rechazada aún no tiene candidatos:
                 // en vez de tres ceros se muestra en qué va.
@@ -132,6 +159,11 @@ $(function () {
                 } else if (v.estatus === 'rechazada') {
                     pie = '<div class="small text-danger"><i class="fas fa-times-circle mr-1"></i>'
                         + escHtml(v.motivo_rechazo || 'RRHH rechazó la requisición.') + '</div>';
+                } else if (Number(v.total) === 0) {
+                    // La vacante existe y está viva, pero todavía no hay a quién
+                    // revisar: tres ceros no lo explicaban.
+                    pie = '<div class="small text-muted"><i class="fas fa-search mr-1"></i>'
+                        + 'RRHH todavía no registra candidatos.</div>';
                 } else {
                     pie = '<div class="d-flex justify-content-between small">'
                         + '<span><i class="fas fa-users mr-1"></i>' + v.total + ' cand.</span>'
@@ -182,6 +214,9 @@ $(function () {
     // Pinta SOLO los candidatos de la vacante seleccionada (o un aviso si no hay).
     function renderCandidatos() {
         var $c = $('#misCandidatos').empty();
+        if (!hayVacantes) {
+            $c.html('<div class="col-12 text-muted small">Aquí aparecerán los candidatos en cuanto tengas una vacante.</div>'); return;
+        }
         if (!vacSel) {
             $c.html('<div class="col-12 text-muted small">Selecciona una vacante de arriba para ver sus candidatos.</div>'); return;
         }
@@ -356,16 +391,36 @@ $(function () {
     // ── Resultado de la entrevista del jefe (punto 15: lo captura el propio jefe) ──
     $('#misCandidatos').on('click', '.btnResultadoOk', function () {
         var id = $(this).data('id');
+        // Al aprobar es cuando el jefe ya sabe que esta persona entra y qué va a
+        // necesitar: se aprovecha para preguntarle por la lista de herramientas.
+        // SIVAC no la guarda —se la pasa él a Almacén— pero sí registra si ya lo
+        // hizo, y eso es lo que Almacén lee en el aviso del alta.
         Swal.fire({
-            title: '¿Aprobar tras la entrevista?', input: 'textarea',
-            inputLabel: 'Notas de la entrevista (opcional)',
+            title: '¿Aprobar tras la entrevista?',
+            html: '<textarea id="sw_res_notas" class="swal2-textarea" '
+                + 'placeholder="Notas de la entrevista (opcional)."></textarea>'
+                + '<div style="text-align:left;margin:12px 4px 0;font-size:.9rem">'
+                + '<label style="cursor:pointer">'
+                + '<input type="checkbox" id="sw_herramientas" style="margin-right:6px">'
+                + 'Ya le envié a <strong>Almacén</strong> la lista de herramientas que va a necesitar'
+                + '</label>'
+                + '<div class="text-muted" style="font-size:.8rem;margin-top:4px">'
+                + 'Si todavía no, déjalo sin marcar: a Almacén le llegará el aviso de que está pendiente.'
+                + '</div></div>',
             showCancelButton: true, confirmButtonColor: messColor('accent'),
             background: messColor('card-bg'), color: messColor('text'),
-            confirmButtonText: 'Sí, aprobar', cancelButtonText: 'Cancelar'
+            confirmButtonText: 'Sí, aprobar', cancelButtonText: 'Cancelar',
+            preConfirm: function () {
+                return {
+                    notas: document.getElementById('sw_res_notas').value,
+                    herramientas: document.getElementById('sw_herramientas').checked ? 1 : 0
+                };
+            }
         }).then(function (r) {
             if (!r.isConfirmed) return;
             ajaxPost('acciones_solicitante.php', {
-                accion: 'registrar_resultado_entrevista', id: id, resultado: 'aceptado', notas: r.value || ''
+                accion: 'registrar_resultado_entrevista', id: id, resultado: 'aceptado',
+                notas: r.value.notas || '', herramientas: r.value.herramientas
             }, function (err, res) {
                 if (res && res.success) { mostrarToast(res.message, 'success'); cargarVacantes(); cargarCandidatos(); }
                 else { mostrarToast((res && res.message) || 'Error.', 'error'); }

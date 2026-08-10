@@ -59,12 +59,15 @@ if ($cand['estatus'] !== 'documentacion') {
  * Avisa a RRHH de algo que hizo el CANDIDATO. Va a la campana del portal (misma
  * de loginMaster) sin correo: son avisos de trabajo, no de trámite. `dedup` evita
  * ocho avisos cuando sube sus ocho documentos; origen 0 = no lo hizo un empleado.
+ *
+ * Va al DEPARTAMENTO de RRHH, no a quien registró al candidato: el expediente lo
+ * atiende quien esté disponible (ver sivacDestinosRRHH en auth.php).
  */
 function avisarRrhh(mysqli $conn, array $cand, int $idCandidato, string $evento, string $titulo): void {
-    $destino = (int)($cand['creador_por'] ?? 0);
-    if ($destino <= 0) return;
+    $destinos = sivacDestinosRRHH($conn);
+    if (!$destinos) return;
     notificarEvento($conn, $evento, [
-        'destino_no_empleado' => $destino,
+        'destinos_no_empleado' => $destinos,
         'origen_no_empleado'  => 0,
         'id_candidato' => $idCandidato,
         'id_vacante'   => (int)$cand['id_vacante'],

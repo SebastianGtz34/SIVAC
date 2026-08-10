@@ -12,6 +12,8 @@ require_once 'includes/flujo.php';
 require_once 'includes/notificaciones.php';
 require_once 'includes/accesos.php';
 require_once 'includes/datos_alta.php';
+require_once 'includes/catalogos.php';
+require_once 'includes/alta_avisos.php';
 
 if (sivacPostDesbordado()) {
     echo json_encode(['success' => false, 'message' => 'El archivo excede el tamaño máximo permitido por el servidor.']);
@@ -29,10 +31,13 @@ function responder(bool $success, string $message = '', array $extra = []): void
 }
 
 function ctxCandidato(mysqli $conn, int $id): ?array {
+    // telefono/nave/herramientas_notificadas y v.departamento sólo los usa el
+    // alta (los avisos por área), pero salen gratis en el mismo SELECT.
     $stmt = $conn->prepare(
         "SELECT c.id, TRIM(CONCAT_WS(' ', c.nombre, NULLIF(c.apellidos,''))) AS nombre,
-                c.correo, c.estatus, c.psicometrico_fecha, c.psicometrico_resultado,
-                v.id AS id_vacante, v.folio, v.puesto, v.tipo, v.no_empleado_solicitante
+                c.correo, c.telefono, c.estatus, c.psicometrico_fecha, c.psicometrico_resultado,
+                c.nave, c.herramientas_notificadas,
+                v.id AS id_vacante, v.folio, v.puesto, v.tipo, v.departamento, v.no_empleado_solicitante
          FROM candidatos c INNER JOIN vacantes v ON v.id = c.id_vacante
          WHERE c.id = ? LIMIT 1"
     );
@@ -73,6 +78,28 @@ switch ($accion) {
             // "pasar a documentación" en vez del formulario de propuesta.
             $r['requiere_propuesta'] = sivacRequierePropuesta($r['tipo_vacante']) ? 1 : 0;
             $data[] = $r;
+        }
+        responder(true, '', ['data' => $data]);
+    }
+
+    case 'areas_alta': {
+        // Catálogo para las casillas del alta. `tiene_correo` distingue el área
+        // que RRHH todavía no configura: la casilla se pinta deshabilitada en vez
+        // de dejar creer que ese aviso salió.
+        $conCorreo = [];
+        $res = $conn->query(
+            "SELECT DISTINCT clave FROM notificaciones_destinatarios
+              WHERE activo = 1 AND TRIM(correo) <> ''"
+        );
+        if ($res) while ($r = $res->fetch_assoc()) $conCorreo[] = $r['clave'];
+
+        $data = [];
+        foreach (sivacAreasAlta() as $clave => $area) {
+            $data[] = [
+                'clave' => $clave,
+                'area'  => $area,
+                'tiene_correo' => in_array($clave, $conCorreo, true) ? 1 : 0,
+            ];
         }
         responder(true, '', ['data' => $data]);
     }
@@ -155,26 +182,17 @@ switch ($accion) {
         $idProp = (int)$prop['id'];
 
         /**
-         * Le avisa al solicitante lo que contestó SU candidato. Es su vacante: se
-         * entera de que ya viene el ingreso, o de que se le cayó y hay que
-         * retomar la búsqueda.
+         * Avisa a RRHH lo que contestó el candidato: es quien sigue el trámite
+         * (arrancar la documentación si aceptó, o retomar la búsqueda si no).
+         * Antes iba al solicitante, pero él no ejecuta ninguno de los dos pasos.
          */
-        $avisarSolicitante = function (bool $acepto, string $detalle) use ($conn, $c, $id) {
-            $sol = obtenerDatosEmpleado($conn, (int)$c['no_empleado_solicitante']);
+        $avisarRrhhPropuesta = function (bool $acepto, string $detalle) use ($conn, $c, $id) {
             notificarEvento($conn, $acepto ? 'propuesta_aceptada' : 'propuesta_rechazada', [
-                'destino_no_empleado' => (int)$c['no_empleado_solicitante'],
+                'destinos_no_empleado' => sivacDestinosRRHH($conn),
                 'id_candidato' => $id, 'id_vacante' => (int)$c['id_vacante'],
                 'titulo'  => ($acepto ? 'Propuesta aceptada — ' : 'Propuesta rechazada — ') . $c['nombre'],
-                'mensaje' => $c['folio'] . ' · ' . $detalle,
+                'mensaje' => $c['folio'] . ' · ' . $c['puesto'] . ' · ' . $detalle,
                 'url'     => 'contrataciones.php',
-                'correos' => $sol && $sol['correo'] ? [$sol['correo']] : [],
-                'correo_asunto' => 'SIVAC — Propuesta ' . ($acepto ? 'aceptada' : 'rechazada')
-                    . ' (' . $c['folio'] . ')',
-                'correo_titulo' => 'Respuesta del candidato',
-                'correo_html' => '<strong>' . htmlspecialchars($c['nombre']) . '</strong> '
-                    . ($acepto ? '<strong>aceptó</strong>' : '<strong>rechazó</strong>')
-                    . ' la propuesta para <strong>' . htmlspecialchars($c['puesto']) . '</strong> ('
-                    . htmlspecialchars($c['folio']) . ').<br><br>' . htmlspecialchars(ucfirst($detalle)) . '.',
             ]);
         };
 
@@ -191,7 +209,7 @@ switch ($accion) {
             $stmt = $conn->prepare("INSERT IGNORE INTO contrataciones (id_candidato, fecha_limite_documentos) VALUES (?, ?)");
             $stmt->bind_param('is', $id, $limite);
             $stmt->execute(); $stmt->close();
-            $avisarSolicitante(true, 'entra a documentación; entrega hasta el ' . date('d/m/Y', strtotime($limite)));
+            $avisarRrhhPropuesta(true, 'entra a documentación; entrega hasta el ' . date('d/m/Y', strtotime($limite)));
             responder(true, 'Propuesta aceptada. Candidato en documentación.');
         } elseif ($respuesta === 'rechazada') {
             $updP = $conn->prepare("UPDATE propuestas SET estatus = 'rechazada', fecha_respuesta = NOW() WHERE id = ?");
@@ -204,7 +222,7 @@ switch ($accion) {
             $stmt = $conn->prepare("UPDATE candidatos SET etapa_descarte = ?, motivo_descarte = 'Rechazó la propuesta' WHERE id = ?");
             $stmt->bind_param('si', $etapa, $id);
             $stmt->execute(); $stmt->close();
-            $avisarSolicitante(false, 'queda descartado; hay que retomar la búsqueda');
+            $avisarRrhhPropuesta(false, 'queda descartado; hay que retomar la búsqueda');
             responder(true, 'Propuesta rechazada; candidato descartado.');
         }
         responder(false, 'Respuesta inválida.');
@@ -301,17 +319,16 @@ switch ($accion) {
 
         // Aviso al candidato (sin campana: no es empleado interno). El envío respeta
         // el switch global de correo; apagado, sólo queda la bitácora en notificaciones.
+        //
+        // Validar NO manda correo: son hasta 8 documentos por candidato y el
+        // resultado ya se ve en su portal, con palomita por renglón. Rechazar SÍ,
+        // porque le pide una acción (volver a subirlo) y puede no entrar solo.
         $c = ctxCandidato($conn, (int)$doc['id_candidato']);
         if ($c && $c['correo']) {
             if ($decision === 'validar') {
                 notificarEvento($conn, 'documento_validado', [
                     'id_candidato' => (int)$doc['id_candidato'], 'id_vacante' => (int)$c['id_vacante'],
                     'titulo' => 'Documento validado — ' . $doc['doc_tipo'],
-                    'correos' => [$c['correo']],
-                    'correo_asunto' => 'SIVAC — Documento validado (' . $c['folio'] . ')',
-                    'correo_titulo' => 'Documento validado',
-                    'correo_html' => 'Hola ' . htmlspecialchars($c['nombre']) . ',<br><br>Tu documento <strong>'
-                        . htmlspecialchars($doc['doc_tipo']) . '</strong> fue <strong>validado</strong>.',
                 ]);
             } else {
                 notificarEvento($conn, 'documento_rechazado', [
@@ -446,6 +463,18 @@ switch ($accion) {
         if (!$c) responder(false, 'Candidato no encontrado.');
         if ($c['estatus'] !== 'documentacion') responder(false, 'El candidato no está en documentación.');
 
+        // Datos que sólo sirven para los avisos y que decide RRHH en este momento:
+        // el sueldo (lo pide Nóminas), los tres requerimientos, y A QUÉ ÁREAS se
+        // avisa. No toda alta le toca a todas — un administrativo no pasa por
+        // Almacén—, así que las casillas mandan sobre el catálogo.
+        $sueldo   = trim($_POST['sueldo'] ?? '');
+        $viaticos = !empty($_POST['req_viaticos']) ? 1 : 0;
+        $celular  = !empty($_POST['req_celular'])  ? 1 : 0;
+        $equipo   = !empty($_POST['req_equipo'])   ? 1 : 0;
+        $areas    = $_POST['areas'] ?? [];
+        if (!is_array($areas)) $areas = array_filter(explode(',', (string)$areas));
+        $areas    = array_values(array_intersect($areas, array_keys(sivacAreasAlta())));
+
         // Requisitos: fecha de ingreso + reglamento + documentos obligatorios completos.
         $stmt = $conn->prepare("SELECT fecha_ingreso, reglamento_enviado FROM contrataciones WHERE id_candidato = ? LIMIT 1");
         $stmt->bind_param('i', $id); $stmt->execute();
@@ -476,10 +505,21 @@ switch ($accion) {
                 . '. Captúralos en «Datos para el alta» antes de continuar.');
         }
 
+        // Nóminas pide el sueldo: si se le va a avisar, tiene que venir.
+        if (in_array('nominas', $areas, true) && $sueldo === '') {
+            responder(false, 'Captura el sueldo: es el dato que pide Nóminas.');
+        }
+
         $r = cambiarEstatusCandidato($conn, $id, 'contratado', $noEmp, 'Alta completada. Fecha de ingreso ' . $ct['fecha_ingreso'] . '.');
         if (!$r['ok']) responder(false, $r['message']);
-        $updCt = $conn->prepare("UPDATE contrataciones SET estatus = 'completada', alta_notificada = NOW() WHERE id_candidato = ?");
-        $updCt->bind_param('i', $id);
+        $updCt = $conn->prepare(
+            "UPDATE contrataciones
+                SET estatus = 'completada', alta_notificada = NOW(),
+                    sueldo = ?, req_viaticos = ?, req_celular = ?, req_equipo = ?
+              WHERE id_candidato = ?"
+        );
+        $sueldoVal = $sueldo !== '' ? $sueldo : null;
+        $updCt->bind_param('siiii', $sueldoVal, $viaticos, $celular, $equipo, $id);
         $updCt->execute();
         $updCt->close();
         // Cierra la vacante SÓLO si ya se cubrieron todas sus posiciones. El
@@ -517,31 +557,61 @@ switch ($accion) {
         // El expediente quedó cerrado: se invalidan los enlaces del portal.
         sivacRevocarAccesos($conn, $id);
 
-        // Avisos a las áreas del catálogo (TI, viáticos, teléfono, marketing) + solicitante.
-        $res = $conn->query("SELECT area, correo FROM notificaciones_destinatarios WHERE activo = 1");
-        $correos = []; $areas = [];
-        while ($x = $res->fetch_assoc()) { $correos[] = $x['correo']; $areas[] = $x['area']; }
-        $sol = obtenerDatosEmpleado($conn, (int)$c['no_empleado_solicitante']);
-        if ($sol && $sol['correo']) $correos[] = $sol['correo'];
-
-        $cuerpo = 'Se dio de alta a un nuevo colaborador:<br><br>'
-            . '<strong>Nombre:</strong> ' . htmlspecialchars($c['nombre']) . '<br>'
-            . '<strong>Puesto:</strong> ' . htmlspecialchars($c['puesto']) . '<br>'
-            . '<strong>Vacante:</strong> ' . htmlspecialchars($c['folio']) . '<br>'
-            . '<strong>Fecha de ingreso:</strong> ' . date('d/m/Y', strtotime($ct['fecha_ingreso'])) . '<br><br>'
-            . 'Favor de realizar las gestiones correspondientes (correo, viáticos, teléfono, difusión).';
+        // Campana al solicitante: es SU vacante y ya se cubrió. Sin correo — él es
+        // empleado y la trae en el portal (política de la retro del 2026-08-06).
         notificarEvento($conn, 'alta_completada', [
             'destino_no_empleado' => (int)$c['no_empleado_solicitante'],
             'id_candidato' => $id, 'id_vacante' => (int)$c['id_vacante'],
             'titulo' => 'Alta completada — ' . $c['nombre'],
             'mensaje' => $c['puesto'] . ' · ingreso ' . date('d/m/Y', strtotime($ct['fecha_ingreso'])),
             'url' => 'contrataciones.php',
-            'correos' => $correos,
-            'correo_asunto' => 'MESS — Alta de nuevo colaborador (' . $c['puesto'] . ')',
-            'correo_titulo' => 'Alta de nuevo colaborador',
-            'correo_html' => $cuerpo,
         ]);
-        responder(true, 'Alta completada. Avisos enviados a: ' . implode(', ', $areas) . '.');
+
+        // Un correo POR ÁREA, cada uno con los datos que esa área pide. La ficha
+        // se resuelve a nombres (departamento, nave y jefe son ids) porque quien
+        // lo recibe no tiene forma de traducir un catálogo.
+        $sol = obtenerDatosEmpleado($conn, (int)$c['no_empleado_solicitante']);
+        $ficha = [
+            'nombre'          => $c['nombre'],
+            'fecha_ingreso'   => date('d/m/Y', strtotime($ct['fecha_ingreso'])),
+            'puesto'          => $c['puesto'],
+            'area'            => catalogoDepartamentos($conn)[(int)($c['departamento'] ?? 0)] ?? '',
+            'sede'            => catalogoNaves($conn)[(int)($c['nave'] ?? 0)] ?? '',
+            'jefe'            => $sol['nombre'] ?? ('#' . (int)$c['no_empleado_solicitante']),
+            'correo_personal' => $c['correo'],
+            'cel_personal'    => $c['telefono'],
+            'sueldo'          => $sueldo,
+            'req_viaticos'    => $viaticos,
+            'req_celular'     => $celular,
+            'req_equipo'      => $equipo,
+            'correo_mess'     => '',   // lo asigna Sistemas; SIVAC no lo conoce
+            'herramientas_notificadas' => (int)($c['herramientas_notificadas'] ?? 0),
+        ];
+
+        $enviadas = [];
+        foreach (sivacAvisosAlta($conn, $ficha, $areas) as $aviso) {
+            notificarEvento($conn, 'alta_aviso_' . $aviso['clave'], [
+                'id_candidato' => $id, 'id_vacante' => (int)$c['id_vacante'],
+                'titulo'  => $aviso['titulo'],
+                'mensaje' => $c['nombre'] . ' · ingreso ' . $ficha['fecha_ingreso'],
+                'correos' => $aviso['correos'],
+                'correo_asunto' => $aviso['asunto'],
+                'correo_titulo' => $aviso['titulo'],
+                'correo_html'   => $aviso['html'],
+            ]);
+            $enviadas[] = $aviso['area'];
+        }
+
+        // Un área marcada sin correo cargado NO detiene el alta, pero RRHH tiene
+        // que enterarse: si no, cree que Nóminas ya recibió su aviso.
+        $sinCorreo = sivacAreasAltaSinCorreo($conn, $areas);
+        $msg = 'Alta completada.';
+        $msg .= $enviadas ? ' Avisos enviados a: ' . implode(', ', $enviadas) . '.' : ' No se envió ningún aviso.';
+        if ($sinCorreo) {
+            $msg .= ' ⚠️ Sin correo configurado (no se avisó): ' . implode(', ', $sinCorreo)
+                . '. Cárgalos en Configuración → Destinatarios.';
+        }
+        responder(true, $msg);
     }
 
     default:

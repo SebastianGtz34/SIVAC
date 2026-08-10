@@ -110,10 +110,40 @@ $(function () {
         $('#docs_id').val(docCandidato);
         $('#docsTitulo').text((soloDatos ? 'Expediente — ' : 'Documentación — ') + $(this).data('nombre'));
         $('#ingreso_fecha').val(''); $('#prorroga_fecha').val('');
+        $('#formAvisosAlta').toggleClass('d-none', soloDatos);
         cargarFicha();
         cargarDatosAlta();
+        cargarAreasAlta();
         $('#modalDocs').modal('show');
     });
+
+    /**
+     * Casillas de a qué áreas se avisa al completar el alta. Vienen del catálogo
+     * (Configuración → Destinatarios), no del código. Un área sin correo cargado
+     * se muestra deshabilitada y avisando por qué: si no, RRHH marca la casilla y
+     * se queda creyendo que Nóminas recibió su correo.
+     */
+    function cargarAreasAlta() {
+        $('#alta_sueldo').val('');
+        $('#alta_viaticos, #alta_celular, #alta_equipo').prop('checked', false);
+        ajaxPost('acciones_cierre.php', { accion: 'areas_alta' }, function (err, res) {
+            var $c = $('#alta_areas').empty();
+            if (err || !res || !res.success || !res.data.length) {
+                $c.html('<span class="text-muted">No hay áreas configuradas.</span>'); return;
+            }
+            res.data.forEach(function (a) {
+                var sinCorreo = !parseInt(a.tiene_correo, 10);
+                $c.append(
+                    '<div class="form-check form-check-inline">'
+                    + '<input class="form-check-input chkAreaAlta" type="checkbox" value="' + escHtml(a.clave) + '"'
+                    + ' id="area_' + escHtml(a.clave) + '"' + (sinCorreo ? ' disabled' : ' checked') + '>'
+                    + '<label class="form-check-label' + (sinCorreo ? ' text-muted' : '') + '" for="area_' + escHtml(a.clave) + '">'
+                    + escHtml(a.area) + (sinCorreo ? ' <em>(sin correo)</em>' : '') + '</label>'
+                    + '</div>'
+                );
+            });
+        });
+    }
 
     // Genera y muestra el enlace del portal del candidato para copiarlo (el correo
     // está apagado en pruebas). Regenerar invalida el anterior.
@@ -279,8 +309,24 @@ $(function () {
 
     $('#btnCompletarAlta').on('click', function (e) {
         e.preventDefault();
-        confirmarAccion('Se completará el alta y se enviarán los avisos a las áreas. La vacante se cerrará sólo si con esta alta se cubren todas sus posiciones. ¿Continuar?', function () {
-            ajaxPost('acciones_cierre.php', { accion: 'completar_alta', id: docCandidato }, function (err, res) {
+        var areas = $('.chkAreaAlta:checked').map(function () { return this.value; }).get();
+        var nombres = $('.chkAreaAlta:checked').map(function () {
+            return $('label[for="' + this.id + '"]').text().trim();
+        }).get();
+
+        var aviso = areas.length
+            ? 'Se avisará a: <strong>' + escHtml(nombres.join(', ')) + '</strong>.'
+            : '<strong>No se avisará a ninguna área.</strong>';
+        confirmarAccion('Se completará el alta. ' + aviso
+            + ' La vacante se cerrará sólo si con esta alta se cubren todas sus posiciones. ¿Continuar?', function () {
+            ajaxPost('acciones_cierre.php', {
+                accion: 'completar_alta', id: docCandidato,
+                sueldo: $('#alta_sueldo').val(),
+                req_viaticos: $('#alta_viaticos').prop('checked') ? 1 : 0,
+                req_celular:  $('#alta_celular').prop('checked')  ? 1 : 0,
+                req_equipo:   $('#alta_equipo').prop('checked')   ? 1 : 0,
+                areas: areas.join(',')
+            }, function (err, res) {
                 if (res && res.success) { $('#modalDocs').modal('hide'); mostrarToast(res.message, 'success'); cargar(); }
                 else { mostrarToast((res && res.message) || 'Error.', 'error'); }
             });

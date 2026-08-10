@@ -341,10 +341,8 @@ switch ($accion) {
             $updVac->execute();
             $updVac->close();
 
-            // Notifica al solicitante (campana + correo).
-            $sol = obtenerDatosEmpleado($conn, (int)$c['no_empleado_solicitante']);
-            $cuerpo = 'Se te envió un candidato para revisar en la vacante <strong>' . htmlspecialchars($c['folio'] . ' — ' . $c['puesto'])
-                . '</strong>.<br><br>Ingresa al portal MESS, pestaña <em>Mis Vacantes</em>, para revisar el CV y aprobar o descartar al candidato.';
+            // Notifica al solicitante. Sólo campana: enviar 10 candidatos ya no son
+            // 10 correos al jefe, que además los ve juntos en su pestaña.
             notificarEvento($conn, 'candidato_enviado', [
                 'destino_no_empleado' => (int)$c['no_empleado_solicitante'],
                 'id_vacante' => (int)$c['id_vacante'], 'id_candidato' => $idc,
@@ -353,10 +351,6 @@ switch ($accion) {
                 // Su vista de solicitante, aunque además sea de RRHH: aquí actúa
                 // como dueño de la vacante, y es donde aprueba o descarta el CV.
                 'url' => 'embed_solicitante.php',
-                'correos' => $sol && $sol['correo'] ? [$sol['correo']] : [],
-                'correo_asunto' => 'SIVAC — Candidato por revisar (' . $c['folio'] . ')',
-                'correo_titulo' => 'Candidato por revisar',
-                'correo_html' => $cuerpo,
             ]);
         }
         responder($enviados > 0, $enviados > 0 ? "$enviados candidato(s) enviado(s)." : 'No se envió ninguno.', ['errores' => $errores]);

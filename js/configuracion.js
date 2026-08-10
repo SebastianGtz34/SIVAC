@@ -43,7 +43,12 @@ $(function () {
             var $b = $('#tablaDest tbody').empty();
             if (err || !res || !res.success) return;
             res.data.forEach(function (d) {
-                $b.append('<tr><td>' + escHtml(d.area) + '</td><td>' + escHtml(d.correo) + '</td>'
+                // Un área sin correo es una que nunca va a recibir su aviso: se
+                // marca, porque desde la pantalla del alta sólo se ve deshabilitada.
+                var correo = d.correo
+                    ? escHtml(d.correo)
+                    : '<span class="text-danger"><i class="fas fa-exclamation-triangle mr-1"></i>sin cargar</span>';
+                $b.append('<tr><td>' + escHtml(d.area) + '</td><td>' + correo + '</td>'
                     + '<td class="text-center">' + (parseInt(d.activo) ? '<span class="badge badge-success">Sí</span>' : '<span class="badge badge-secondary">No</span>') + '</td>'
                     + '<td class="text-right"><button class="btn btn-sm btn-outline-secondary btnEditDest" data-d=\'' + JSON.stringify(d) + '\'><i class="fas fa-edit"></i></button> '
                     + '<button class="btn btn-sm btn-outline-danger btnDelDest" data-id="' + d.id + '"><i class="fas fa-trash"></i></button></td></tr>');
@@ -55,8 +60,15 @@ $(function () {
     });
     $('#tablaDest').on('click', '.btnEditDest', function () {
         var d = $(this).data('d');
-        $('#dest_id').val(d.id); $('#dest_area').val(d.area); $('#dest_correo').val(d.correo);
+        $('#dest_id').val(d.id); $('#dest_clave').val(d.clave || 'nominas');
+        $('#dest_area').val(d.area); $('#dest_correo').val(d.correo);
         $('#dest_activo').prop('checked', parseInt(d.activo) === 1); $('#modalDest').modal('show');
+    });
+    // El área es sólo la etiqueta: se propone la del aviso elegido para no
+    // teclearla, pero se puede cambiar (p. ej. "Nóminas — Gisela").
+    $('#dest_clave').on('change', function () {
+        if ($('#dest_id').val()) return;                    // editando: no pisar lo que ya hay
+        $('#dest_area').val($(this).find('option:selected').text().split('—')[0].trim());
     });
     $('#tablaDest').on('click', '.btnDelDest', function () {
         var id = $(this).data('id');
@@ -69,8 +81,9 @@ $(function () {
     $('#formDest').on('submit', function (e) {
         e.preventDefault();
         ajaxPost(URL, {
-            accion: 'guardar_destinatario', id: $('#dest_id').val(), area: $('#dest_area').val(),
-            correo: $('#dest_correo').val(), activo: $('#dest_activo').prop('checked') ? 1 : 0
+            accion: 'guardar_destinatario', id: $('#dest_id').val(), clave: $('#dest_clave').val(),
+            area: $('#dest_area').val(), correo: $('#dest_correo').val(),
+            activo: $('#dest_activo').prop('checked') ? 1 : 0
         }, function (err, res) {
             if (res && res.success) { $('#modalDest').modal('hide'); mostrarToast(res.message, 'success'); cargarDest(); }
             else { mostrarToast((res && res.message) || 'Error.', 'error'); }

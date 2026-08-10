@@ -142,8 +142,8 @@ switch ($accion) {
         if (!$ok) responder(false, 'El estatus cambió; recarga e inténtalo de nuevo.');
 
         // El jefe que la levantó tiene que enterarse del veredicto: hasta ahora el
-        // motivo del rechazo sólo se veía entrando a "Mis Vacantes".
-        $sol = obtenerDatosEmpleado($conn, (int)$vac['no_empleado_solicitante']);
+        // motivo del rechazo sólo se veía entrando a "Mis Vacantes". Sólo campana:
+        // el jefe es empleado y ya la trae en el portal.
         $aprobada = $decision === 'aprobar';
         notificarEvento($conn, $aprobada ? 'requisicion_aprobada' : 'requisicion_rechazada', [
             'destino_no_empleado' => (int)$vac['no_empleado_solicitante'],
@@ -151,16 +151,6 @@ switch ($accion) {
             'titulo'  => ($aprobada ? 'Requisición aprobada — ' : 'Requisición rechazada — ') . $vac['folio'],
             'mensaje' => $aprobada ? $vac['puesto'] . ' · la vacante quedó abierta' : $motivo,
             'url'     => 'vacantes.php',
-            'correos' => $sol && $sol['correo'] ? [$sol['correo']] : [],
-            'correo_asunto' => 'SIVAC — Requisición ' . ($aprobada ? 'aprobada' : 'rechazada')
-                . ' (' . $vac['folio'] . ')',
-            'correo_titulo' => 'Requisición ' . ($aprobada ? 'aprobada' : 'rechazada'),
-            'correo_html' => 'Tu requisición de <strong>' . htmlspecialchars($vac['puesto']) . '</strong> ('
-                . htmlspecialchars($vac['folio']) . ') fue <strong>'
-                . ($aprobada ? 'aprobada' : 'rechazada') . '</strong> por Recursos Humanos.'
-                . ($aprobada
-                    ? '<br><br>La vacante ya está abierta; recibirás a los candidatos conforme RRHH te los envíe.'
-                    : '<br><br><strong>Motivo:</strong> ' . htmlspecialchars($motivo)),
         ]);
 
         responder(true, $decision === 'aprobar'

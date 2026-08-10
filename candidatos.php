@@ -18,9 +18,28 @@ include 'encabezado.php';
     </div>
 </div>
 
+<!-- Etiqueta de contexto: qué vacante se está viendo. El select de la esquina se
+     perdía, sobre todo al llegar desde Vacantes con ?vacante=N. La pinta
+     js/candidatos.js (pintarEtiquetaVacante) a partir del filtro. -->
+<div id="etiquetaVacante" class="vac-contexto d-none">
+    <div class="vac-contexto-info">
+        <i class="fas fa-briefcase"></i>
+        <div>
+            <div class="vac-contexto-titulo">
+                <span id="etiquetaVacantePuesto"></span>
+                <span id="etiquetaVacanteBadge"></span>
+            </div>
+            <div class="vac-contexto-folio text-muted small" id="etiquetaVacanteFolio"></div>
+        </div>
+    </div>
+    <button type="button" class="btn btn-sm btn-outline-primary" id="btnTodasVacantes">
+        <i class="fas fa-times mr-1"></i>Ver todas
+    </button>
+</div>
+
 <div class="card mb-4">
     <div class="card-header d-flex align-items-center justify-content-between">
-        <span>Candidatos</span>
+        <span id="tituloTablaCandidatos">Candidatos</span>
         <select id="filtroVacante" class="form-control form-control-sm" style="width:auto">
             <option value="">Todas las vacantes</option>
         </select>

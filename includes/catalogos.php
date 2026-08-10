@@ -39,6 +39,18 @@ if (!function_exists('catalogoRegiones')) {
         return $cache;
     }
 
+    /** Departamentos del catálogo de RRHH: [id => nombre]. Cacheado por request. */
+    function catalogoDepartamentos(mysqli $conn): array {
+        static $cache = null;
+        if ($cache !== null) return $cache;
+        $cache = [];
+        $res = $conn->query("SELECT id, departamento FROM mess_rrhh.departamento ORDER BY departamento");
+        if ($res) {
+            while ($r = $res->fetch_assoc()) $cache[(int)$r['id']] = $r['departamento'];
+        }
+        return $cache;
+    }
+
     /** Puestos activos del catálogo: [id => nombre]. Cacheado por request. */
     function catalogoPuestos(mysqli $conn): array {
         static $cache = null;
