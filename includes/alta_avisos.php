@@ -4,10 +4,10 @@
  *
  * Antes era UN correo genérico a todas ("realicen las gestiones correspondientes").
  * Ahora es uno POR ÁREA, porque cada una pide datos distintos y hace algo
- * distinto con ellos: Nóminas necesita el sueldo, Cuenta de gastos si lleva
- * tarjeta y celular, Sistemas los accesos, Marketing el correo corporativo y
- * Almacén sus herramientas. Mandarles a todos el mismo texto obligaba a que cada
- * quien preguntara por su parte.
+ * distinto con ellos: Nóminas asigna el número de empleado, Cuenta de gastos ve
+ * si lleva tarjeta y celular, Sistemas los accesos, Marketing el correo
+ * corporativo y Almacén sus herramientas. Mandarles a todos el mismo texto
+ * obligaba a que cada quien preguntara por su parte.
  *
  * Quién recibe cada uno sale de `notificaciones_destinatarios.clave`, no del
  * código: RRHH edita los correos desde Configuración y un área puede tener
@@ -67,7 +67,7 @@ if (!function_exists('sivacAvisosAlta')) {
      * que tienen al menos un correo activo cargado.
      *
      * @param array $d Ficha ya resuelta (nombres, no ids): nombre, fecha_ingreso,
-     *   puesto, area, sede, jefe, correo_personal, cel_personal, sueldo,
+     *   puesto, area, sede, jefe, correo_personal, cel_personal,
      *   req_viaticos, req_celular, req_equipo, herramientas_notificadas.
      * @param string[] $claves Áreas que RRHH marcó al completar el alta. No toda
      *   alta le toca a todas (un administrativo no pasa por Almacén), así que la
@@ -100,12 +100,11 @@ if (!function_exists('sivacAvisosAlta')) {
         ];
 
         // Qué le toca a cada área: sus filas extra y qué se le pide de vuelta.
-        // El orden de $base se respeta; el sueldo va junto al puesto en Nóminas.
+        // El orden de $base se respeta.
         $cuerpos = [];
 
         // ── Nóminas: es quien asigna el número de empleado. ──
         $nominas = $base;
-        array_splice($nominas, 3, 0, [altaFila('Sueldo:', $d['sueldo'])]);
         $nominas[] = altaFila('Correo personal:', $d['correo_personal']);
         $nominas[] = altaFila('Cel personal:',    $d['cel_personal']);
         $cuerpos['nominas'] = [

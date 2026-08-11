@@ -86,7 +86,7 @@ include 'encabezado.php';
              distintos. Puede haber varias personas con la misma clave. -->
         <div class="form-group"><label>Aviso que recibe *</label>
           <select class="form-control" id="dest_clave" required>
-            <option value="nominas">Nóminas — sueldo y datos personales</option>
+            <option value="nominas">Nóminas — número de empleado y datos personales</option>
             <option value="gastos">Cuenta de gastos — viáticos y celular</option>
             <option value="marketing">Marketing — difusión</option>
             <option value="sistemas">Sistemas — correo, SCOT y equipo</option>

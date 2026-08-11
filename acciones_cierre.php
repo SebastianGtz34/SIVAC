@@ -137,8 +137,8 @@ switch ($accion) {
 
         $fechaCad = date('Y-m-d', $tc);
         $stmt = $conn->prepare(
-            "INSERT INTO propuestas (id_candidato, condiciones, fecha_caducidad, capturado_por, documento, sueldo_propuesto)
-             VALUES (?, ?, ?, ?, '', '')"
+            "INSERT INTO propuestas (id_candidato, condiciones, fecha_caducidad, capturado_por, documento)
+             VALUES (?, ?, ?, ?, '')"
         );
         $stmt->bind_param('issi', $id, $condiciones, $fechaCad, $noEmp);
         $stmt->execute(); $stmt->close();
@@ -464,10 +464,9 @@ switch ($accion) {
         if ($c['estatus'] !== 'documentacion') responder(false, 'El candidato no está en documentación.');
 
         // Datos que sólo sirven para los avisos y que decide RRHH en este momento:
-        // el sueldo (lo pide Nóminas), los tres requerimientos, y A QUÉ ÁREAS se
-        // avisa. No toda alta le toca a todas — un administrativo no pasa por
-        // Almacén—, así que las casillas mandan sobre el catálogo.
-        $sueldo   = trim($_POST['sueldo'] ?? '');
+        // los tres requerimientos y A QUÉ ÁREAS se avisa. No toda alta le toca a
+        // todas — un administrativo no pasa por Almacén—, así que las casillas
+        // mandan sobre el catálogo.
         $viaticos = !empty($_POST['req_viaticos']) ? 1 : 0;
         $celular  = !empty($_POST['req_celular'])  ? 1 : 0;
         $equipo   = !empty($_POST['req_equipo'])   ? 1 : 0;
@@ -505,21 +504,15 @@ switch ($accion) {
                 . '. Captúralos en «Datos para el alta» antes de continuar.');
         }
 
-        // Nóminas pide el sueldo: si se le va a avisar, tiene que venir.
-        if (in_array('nominas', $areas, true) && $sueldo === '') {
-            responder(false, 'Captura el sueldo: es el dato que pide Nóminas.');
-        }
-
         $r = cambiarEstatusCandidato($conn, $id, 'contratado', $noEmp, 'Alta completada. Fecha de ingreso ' . $ct['fecha_ingreso'] . '.');
         if (!$r['ok']) responder(false, $r['message']);
         $updCt = $conn->prepare(
             "UPDATE contrataciones
                 SET estatus = 'completada', alta_notificada = NOW(),
-                    sueldo = ?, req_viaticos = ?, req_celular = ?, req_equipo = ?
+                    req_viaticos = ?, req_celular = ?, req_equipo = ?
               WHERE id_candidato = ?"
         );
-        $sueldoVal = $sueldo !== '' ? $sueldo : null;
-        $updCt->bind_param('siiii', $sueldoVal, $viaticos, $celular, $equipo, $id);
+        $updCt->bind_param('iiii', $viaticos, $celular, $equipo, $id);
         $updCt->execute();
         $updCt->close();
         // Cierra la vacante SÓLO si ya se cubrieron todas sus posiciones. El
@@ -580,7 +573,6 @@ switch ($accion) {
             'jefe'            => $sol['nombre'] ?? ('#' . (int)$c['no_empleado_solicitante']),
             'correo_personal' => $c['correo'],
             'cel_personal'    => $c['telefono'],
-            'sueldo'          => $sueldo,
             'req_viaticos'    => $viaticos,
             'req_celular'     => $celular,
             'req_equipo'      => $equipo,

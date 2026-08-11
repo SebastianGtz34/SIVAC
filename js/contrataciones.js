@@ -124,7 +124,6 @@ $(function () {
      * se queda creyendo que Nóminas recibió su correo.
      */
     function cargarAreasAlta() {
-        $('#alta_sueldo').val('');
         $('#alta_viaticos, #alta_celular, #alta_equipo').prop('checked', false);
         ajaxPost('acciones_cierre.php', { accion: 'areas_alta' }, function (err, res) {
             var $c = $('#alta_areas').empty();
@@ -321,7 +320,6 @@ $(function () {
             + ' La vacante se cerrará sólo si con esta alta se cubren todas sus posiciones. ¿Continuar?', function () {
             ajaxPost('acciones_cierre.php', {
                 accion: 'completar_alta', id: docCandidato,
-                sueldo: $('#alta_sueldo').val(),
                 req_viaticos: $('#alta_viaticos').prop('checked') ? 1 : 0,
                 req_celular:  $('#alta_celular').prop('checked')  ? 1 : 0,
                 req_equipo:   $('#alta_equipo').prop('checked')   ? 1 : 0,
