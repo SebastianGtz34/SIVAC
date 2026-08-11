@@ -108,9 +108,8 @@ include 'encabezado.php';
 
           <!-- ── Avisos del alta ──
                Lo último antes de cerrar: qué se les dice a las áreas y a cuáles.
-               El sueldo y los tres requerimientos no salen de ningún otro lado
-               del proceso; las casillas evitan avisarle a Almacén de un alta
-               administrativa. -->
+               Los tres requerimientos no salen de ningún otro lado del proceso;
+               las casillas evitan avisarle a Almacén de un alta administrativa. -->
           <hr class="my-3">
           <h6>Avisos a las áreas</h6>
           <p class="small text-muted mb-2">
@@ -118,11 +117,6 @@ include 'encabezado.php';
             cada uno con los datos que esa área pide. Desmarca las que no apliquen.
           </p>
           <form id="formAvisosAlta">
-            <div class="form-row">
-              <div class="form-group col-7"><label class="small mb-1">Sueldo <span class="text-danger">*</span></label>
-                <input type="text" class="form-control form-control-sm" id="alta_sueldo" maxlength="100"
-                       placeholder="Lo pide Nóminas"></div>
-            </div>
             <div class="form-group mb-2">
               <label class="small mb-1 d-block">Requerimientos</label>
               <div class="form-check form-check-inline">

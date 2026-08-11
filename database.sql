@@ -188,7 +188,7 @@ CREATE TABLE IF NOT EXISTS citas (
 -- Propuestas económicas con periodo de caducidad.
 -- 1:N — si expira se puede reenviar una nueva.
 -- capturado_por = RRHH que registró la propuesta.
--- documento / sueldo_propuesto = NOT NULL (la app los inserta vacíos por ahora).
+-- documento = NOT NULL (la app lo inserta vacío por ahora).
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS propuestas (
     id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -201,7 +201,6 @@ CREATE TABLE IF NOT EXISTS propuestas (
     fecha_respuesta DATETIME NULL,
     capturado_por INT UNSIGNED NOT NULL,
     documento     VARCHAR(250) NOT NULL,
-    sueldo_propuesto VARCHAR(100) NOT NULL COMMENT 'REVISAR CON RRHH',
     PRIMARY KEY (id),
     KEY idx_prop_candidato (id_candidato),
     KEY idx_prop_estado_caducidad (estatus, fecha_caducidad),
@@ -222,8 +221,7 @@ CREATE TABLE IF NOT EXISTS contrataciones (
     alta_notificada    DATETIME NULL COMMENT 'cuándo se avisó a las áreas del catálogo',
     -- Datos que sólo sirven para los avisos del alta: los teclea RRHH al
     -- completar la contratación, no salen de ningún otro lado del proceso.
-    -- El sueldo va a Nóminas; los tres flags a Cuenta de gastos y a Sistemas.
-    sueldo        VARCHAR(100) NULL COMMENT 'sueldo pactado — sólo para el aviso a Nóminas',
+    -- Los tres flags van a Cuenta de gastos y a Sistemas.
     req_viaticos  TINYINT(1) NOT NULL DEFAULT 0 COMMENT '¿necesita tarjeta de viáticos?',
     req_celular   TINYINT(1) NOT NULL DEFAULT 0 COMMENT '¿necesita celular?',
     req_equipo    TINYINT(1) NOT NULL DEFAULT 0 COMMENT '¿necesita computadora o laptop?',
@@ -287,7 +285,7 @@ CREATE TABLE IF NOT EXISTS documentos (
 -- Catálogo de destinatarios de aviso al completar un alta
 --
 -- `clave` dice QUÉ correo recibe cada quien: cada área pide datos distintos
--- (Nóminas quiere el sueldo, Sistemas los accesos, Almacén las herramientas),
+-- (Nóminas asigna el número de empleado, Sistemas los accesos, Almacén las herramientas),
 -- así que el cuerpo se arma por clave — ver sivacCorreosAlta() en
 -- includes/alta_avisos.php. `area` es sólo la etiqueta que se muestra.
 -- Puede haber VARIAS filas con la misma clave (p. ej. Sistemas son dos personas).
