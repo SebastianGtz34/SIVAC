@@ -60,7 +60,10 @@ $(function () {
                 }
                 acciones += '<button class="btn btn-outline-secondary btnEditar" data-id="' + v.id + '" title="Editar"><i class="fas fa-edit"></i></button>'
                     + '<button class="btn btn-outline-secondary btnestatus" data-id="' + v.id + '" data-estatus="' + v.estatus + '" title="estatus"><i class="fas fa-random"></i></button>'
-                    + '<a class="btn btn-outline-primary" href="candidatos.php?vacante=' + v.id + '" title="Candidatos"><i class="fas fa-users"></i></a>'
+                    // Con etiqueta y no sólo el ícono: es la salida natural de la
+                    // fila (ver a quién se le está buscando) y llega a Candidatos ya
+                    // filtrado y con el modal de registro abierto.
+                    + '<a class="btn btn-outline-primary" href="candidatos.php?vacante=' + v.id + '" title="Ver los candidatos de esta vacante"><i class="fas fa-users mr-1"></i>Ver candidatos</a>'
                     + '</div>';
 
                 // El puesto lleva debajo el tipo y, si la levantó un jefe, de dónde vino.

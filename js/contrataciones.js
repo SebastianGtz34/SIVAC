@@ -33,7 +33,7 @@ $(function () {
                     acc += '<button class="btn btn-outline-danger btnResp" data-id="' + c.id + '" data-r="rechazada"><i class="fas fa-times"></i></button>';
                 } else if (c.estatus === 'documentacion') {
                     acc += '<button class="btn btn-outline-primary btnDocs" data-id="' + c.id + '" data-nombre="' + escHtml(c.nombre) + '"><i class="fas fa-folder-open mr-1"></i>Documentación</button>';
-                    acc += '<button class="btn btn-outline-secondary btnEnlace" data-id="' + c.id + '" title="Copiar enlace del portal del candidato"><i class="fas fa-link"></i></button>';
+                    acc += '<button class="btn btn-outline-secondary btnEnlace" data-id="' + c.id + '" title="Ver o generar el enlace del portal del candidato"><i class="fas fa-link"></i></button>';
                 } else if (c.estatus === 'contratado') {
                     // Ya contratado: sólo consulta del expediente y de los datos que
                     // jala gestionPersonal (siguen siendo corregibles hasta que allá
@@ -110,6 +110,7 @@ $(function () {
         $('#docs_id').val(docCandidato);
         $('#docsTitulo').text((soloDatos ? 'Expediente — ' : 'Documentación — ') + $(this).data('nombre'));
         $('#ingreso_fecha').val(''); $('#prorroga_fecha').val('');
+        $('#resumenFechas').empty();   // no dejar a la vista las fechas del candidato anterior
         $('#formAvisosAlta').toggleClass('d-none', soloDatos);
         cargarFicha();
         cargarDatosAlta();
@@ -144,25 +145,61 @@ $(function () {
         });
     }
 
-    // Genera y muestra el enlace del portal del candidato para copiarlo (el correo
-    // está apagado en pruebas). Regenerar invalida el anterior.
+    /** Copia al portapapeles avisando por toast (el navegador puede negarlo). */
+    function copiarEnlace(url) {
+        if (navigator.clipboard) { navigator.clipboard.writeText(url).then(function () { mostrarToast('Enlace copiado.', 'success'); }); }
+        else { mostrarToast('Copia el enlace manualmente.', 'info'); }
+    }
+
+    /** Pide un enlace nuevo (invalida el anterior) y lo muestra para copiarlo. */
+    function generarEnlaceNuevo(id) {
+        ajaxPost('acciones_cierre.php', { accion: 'enlace_portal', id: id, modo: 'nuevo' }, function (err, res) {
+            if (!res || !res.success) { mostrarToast((res && res.message) || 'No se pudo generar el enlace.', 'error'); return; }
+            mostrarEnlace(id, res.url, res.message, res.expira, false);
+        });
+    }
+
+    /**
+     * Enlace del portal del candidato. El botón muestra el que YA tiene (repetirlo
+     * no le rompe nada) y deja generar uno nuevo aparte, que sí invalida el viejo:
+     * antes cualquier clic regeneraba y el candidato se quedaba a medias.
+     */
+    function mostrarEnlace(id, url, mensaje, expira, esVigente) {
+        Swal.fire({
+            title: 'Enlace del portal del candidato',
+            html: '<p class="small text-muted mb-2">' + escHtml(mensaje)
+                + (expira ? ' Vigente hasta el <strong>' + escHtml(expira) + '</strong>.' : '') + '</p>'
+                + '<input id="sw_enlace" class="swal2-input" readonly value="' + escHtml(url) + '" style="font-size:.8rem">',
+            showCancelButton: true, showDenyButton: esVigente,
+            confirmButtonText: 'Copiar',
+            denyButtonText: 'Generar uno nuevo',
+            cancelButtonText: 'Cerrar',
+            confirmButtonColor: messColor('accent'), background: messColor('card-bg'), color: messColor('text'),
+            didOpen: function () { var el = document.getElementById('sw_enlace'); if (el) el.select(); }
+        }).then(function (r) {
+            if (r.isConfirmed) { copiarEnlace(url); return; }
+            if (r.isDenied) {
+                confirmarAccion('El enlace que ya tiene el candidato dejará de funcionar y habrá que mandarle el nuevo.',
+                    function () { generarEnlaceNuevo(id); },
+                    { titulo: '¿Generar un enlace nuevo?', confirmar: 'Sí, generar', icon: 'warning' });
+            }
+        });
+    }
+
     $('#tablaCierre tbody').on('click', '.btnEnlace', function () {
         var id = $(this).data('id');
-        ajaxPost('acciones_cierre.php', { accion: 'generar_enlace_portal', id: id }, function (err, res) {
-            if (!res || !res.success) { mostrarToast((res && res.message) || 'No se pudo generar el enlace.', 'error'); return; }
-            var url = res.url;
-            Swal.fire({
-                title: 'Enlace del portal del candidato',
-                html: '<p class="small text-muted mb-2">' + escHtml(res.message) + '</p>'
-                    + '<input id="sw_enlace" class="swal2-input" readonly value="' + escHtml(url) + '" style="font-size:.8rem">',
-                showCancelButton: true, confirmButtonText: 'Copiar', cancelButtonText: 'Cerrar',
-                confirmButtonColor: messColor('accent'), background: messColor('card-bg'), color: messColor('text'),
-                didOpen: function () { var el = document.getElementById('sw_enlace'); if (el) el.select(); }
-            }).then(function (r) {
-                if (!r.isConfirmed) return;
-                if (navigator.clipboard) { navigator.clipboard.writeText(url).then(function () { mostrarToast('Enlace copiado.', 'success'); }); }
-                else { mostrarToast('Copia el enlace manualmente.', 'info'); }
-            });
+        ajaxPost('acciones_cierre.php', { accion: 'enlace_portal', id: id }, function (err, res) {
+            if (!res || !res.success) { mostrarToast((res && res.message) || 'No se pudo consultar el enlace.', 'error'); return; }
+            // Sin enlace vigente (o con uno viejo que ya no se puede mostrar): lo
+            // único que queda es generar. Se pregunta sólo cuando hay algo que romper.
+            if (!parseInt(res.vigente, 10)) { generarEnlaceNuevo(id); return; }
+            if (parseInt(res.sin_token, 10)) {
+                confirmarAccion(res.message + ' Generar uno nuevo invalidará el que tenga el candidato.',
+                    function () { generarEnlaceNuevo(id); },
+                    { titulo: 'Generar un enlace nuevo', confirmar: 'Sí, generar', icon: 'warning' });
+                return;
+            }
+            mostrarEnlace(id, res.url, res.message, res.expira, true);
         });
     });
 
@@ -224,6 +261,7 @@ $(function () {
             $('#da_fnac').val(d.fecha_nacimiento || '');
             $('#da_sangre').val(d.tipo_sangre || '');
             pintarFaltan(res.faltan || []);
+            pintarFechas(res.contratacion || {});
 
             // Aplicada el alta allá, la fila ya se consumió: sólo lectura.
             var aplicada = parseInt(d.alta_aplicada || 0) === 1;
@@ -233,6 +271,22 @@ $(function () {
                     .html('<i class="fas fa-check mr-1"></i>El alta ya se aplicó en gestionPersonal.');
             }
         });
+    }
+
+    /**
+     * Las dos fechas del trámite, juntas y con el aviso cuando la entrega de
+     * documentos vence después del ingreso. Además precarga la fecha de ingreso
+     * ya registrada: el campo salía vacío y parecía que no se había guardado.
+     */
+    function pintarFechas(ct) {
+        if (ct.fecha_ingreso) $('#ingreso_fecha').val(ct.fecha_ingreso);
+        var partes = 'Ingreso: <strong>' + (ct.fecha_ingreso ? formatearSoloFecha(ct.fecha_ingreso) : '—') + '</strong>'
+            + ' · Documentos hasta: <strong>' + (ct.fecha_limite_documentos ? formatearSoloFecha(ct.fecha_limite_documentos) : '—') + '</strong>'
+            + (parseInt(ct.prorrogas, 10) ? ' (' + ct.prorrogas + ' prórroga(s))' : '');
+        $('#resumenFechas').html(
+            '<div class="text-muted">' + partes + '</div>'
+            + (ct.aviso ? '<div class="text-warning mt-1"><i class="fas fa-exclamation-triangle mr-1"></i>' + escHtml(ct.aviso) + '</div>' : '')
+        );
     }
 
     function pintarFaltan(faltan) {
@@ -282,11 +336,18 @@ $(function () {
         });
     });
 
+    /** Toast del resultado: amarillo si el backend devolvió aviso (guardó igual). */
+    function toastFechas(res) {
+        if (!res || !res.success) { mostrarToast((res && res.message) || 'Error.', 'error'); return; }
+        mostrarToast(res.message, res.aviso ? 'warning' : 'success');
+    }
+
     $('#btnIngreso').on('click', function (e) {
         e.preventDefault();
         if (!$('#ingreso_fecha').val()) { mostrarToast('Selecciona la fecha.', 'warning'); return; }
         ajaxPost('acciones_cierre.php', { accion: 'registrar_fecha_ingreso', id: docCandidato, fecha_ingreso: $('#ingreso_fecha').val() }, function (err, res) {
-            mostrarToast((res && res.message) || 'Error.', res && res.success ? 'success' : 'error');
+            toastFechas(res);
+            if (res && res.success) { cargarDatosAlta(); cargar(); }
         });
     });
 
@@ -294,8 +355,8 @@ $(function () {
         e.preventDefault();
         if (!$('#prorroga_fecha').val()) { mostrarToast('Selecciona la fecha.', 'warning'); return; }
         ajaxPost('acciones_cierre.php', { accion: 'prorroga_documentos', id: docCandidato, fecha_limite: $('#prorroga_fecha').val() }, function (err, res) {
-            mostrarToast((res && res.message) || 'Error.', res && res.success ? 'success' : 'error');
-            if (res && res.success) cargar();
+            toastFechas(res);
+            if (res && res.success) { $('#prorroga_fecha').val(''); cargarDatosAlta(); cargar(); }
         });
     });
 

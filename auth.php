@@ -34,6 +34,13 @@
 // 27 = Business Intelligence, 47 = Recursos Humanos (mess_rrhh.departamento).
 define('SIVAC_DEPTS_RRHH', [27, 47]);
 
+// Empleados de la prueba cerrada que ven la pestaña «Mis Vacantes» del portal y,
+// por lo tanto, pueden levantar su requisición aunque no tengan personal a cargo.
+// ⚠️ GEMELA de $empleadosSivacTab en loginMaster/inicio.php (OTRO repo): quien
+// abre la pestaña allá tiene que poder usarla aquí, así que las dos listas se
+// mueven juntas. Al terminar la prueba se quitan las dos.
+define('SIVAC_EMPLEADOS_TAB', [523, 360, 569, 403, 487, 183, 276, 161, 45, 260]);
+
 // Departamentos que RECIBEN los avisos internos. Es un subconjunto del anterior:
 // BI entra a SIVAC como súper-usuario (soporte y desarrollo), pero no lleva el
 // proceso de reclutamiento, así que no se le llena la campana. ACCESO y AVISOS
@@ -269,12 +276,36 @@ if (!function_exists('sivacAuthNoEmpleado')) {
         }
     }
 
+    /** ¿Es dueño de alguna vacante? (en cualquier estatus, igual que el portal). */
+    function esSolicitanteDeAlguna(mysqli $conn, int $noEmpleado): bool {
+        static $cache = [];
+        if (isset($cache[$noEmpleado])) return $cache[$noEmpleado];
+        $stmt = $conn->prepare("SELECT 1 FROM vacantes WHERE no_empleado_solicitante = ? LIMIT 1");
+        if (!$stmt) return $cache[$noEmpleado] = false;
+        $stmt->bind_param('i', $noEmpleado);
+        $stmt->execute();
+        $tiene = $stmt->get_result()->num_rows > 0;
+        $stmt->close();
+        return $cache[$noEmpleado] = $tiene;
+    }
+
     /**
-     * ¿Puede levantar una requisición de vacante? Cualquier jefe con equipo.
-     * RRHH también, pero por su vía normal (acciones_vacantes.php), que no pasa
-     * por VoBo.
+     * ¿Puede levantar una requisición de vacante?
+     *
+     * La regla es «quien ve la pestaña Mis Vacantes, la puede usar»: no tiene
+     * sentido abrirle la ventana a alguien y dejarle el botón deshabilitado. Por
+     * eso replica las dos condiciones de la pestaña (SIVAC_EMPLEADOS_TAB o ser
+     * dueño de alguna vacante) y suma las dos que ya existían: jefe con equipo y
+     * RRHH —éste también levanta por su vía normal (acciones_vacantes.php), que no
+     * pasa por VoBo—.
+     *
+     * Hacía falta porque el rol de jefe se deriva de tener subordinados activos en
+     * mess_rrhh.usuarios.jefe, y hay solicitantes reales que no los tienen.
      */
     function puedeSolicitarVacante(mysqli $conn, int $noEmpleado): bool {
-        return esJefe($conn, $noEmpleado) || esRRHH($conn, $noEmpleado);
+        return esJefe($conn, $noEmpleado)
+            || esRRHH($conn, $noEmpleado)
+            || in_array($noEmpleado, SIVAC_EMPLEADOS_TAB, true)
+            || esSolicitanteDeAlguna($conn, $noEmpleado);
     }
 }
