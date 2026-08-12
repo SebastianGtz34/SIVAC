@@ -7,7 +7,8 @@
  * pero el resto de las páginas siguen siendo RRHH-only. A un gerente se le
  * muestra solo lo que puede abrir: pintarle enlaces que lo rebotan al portal es
  * una invitación a un callejón sin salida. Esto es cosmético —el gate real lo
- * hace requiereRRHHPage() en cada página.
+ * hace requiereRRHHPage() en cada página. "Salir" es la única entrada que ven
+ * todos, RRHH incluido: antes el sidebar no tenía por dónde cerrar sesión.
  */
 $menuActivo = $menuActivo ?? '';
 $menuEsRRHH = isset($conn, $noEmpSesion) ? esRRHH($conn, $noEmpSesion) : true;
@@ -49,13 +50,16 @@ function sivacActivo($nombre) {
     <li class="nav-item<?= sivacActivo('configuracion') ?>">
         <a class="nav-link" href="configuracion.php"><i class="fas fa-fw fa-cog"></i><span>Configuración</span></a>
     </li>
-    <?php else: ?>
+    <?php endif; ?>
+
     <hr class="sidebar-divider">
 
+    <!-- Salir = dejar SIVAC y volver al inicio de loginMaster (logout.php). NO
+         cierra la sesión del portal: se sigue navegando en el ecosistema. Sustituyó
+         al enlace "Portal MESS", que llevaba al mismo lugar con otro nombre. -->
     <li class="nav-item">
-        <a class="nav-link" href="../loginMaster/inicio.php"><i class="fas fa-fw fa-th-large"></i><span>Portal MESS</span></a>
+        <a class="nav-link" href="logout.php"><i class="fas fa-fw fa-sign-out-alt"></i><span>Salir</span></a>
     </li>
-    <?php endif; ?>
 
     <hr class="sidebar-divider d-none d-md-block">
     <div class="text-center d-none d-md-inline">

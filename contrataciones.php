@@ -71,6 +71,11 @@ include 'encabezado.php';
               <div class="input-group-append"><button class="btn btn-outline-secondary" id="btnProrroga">Prórroga</button></div>
             </div>
           </div>
+          <!-- Las dos fechas juntas: se capturan en campos separados y nada
+               relacionaba una con otra. Si la entrega vence después del ingreso
+               se avisa, pero no se bloquea (hay altas que se cierran con
+               documentos en tránsito). Lo pinta js/contrataciones.js. -->
+          <div id="resumenFechas" class="small mb-3"></div>
           <button class="btn btn-outline-info btn-sm mb-2" id="btnReglamento"><i class="fas fa-book mr-1"></i>Enviar reglamento</button>
           <div id="cierreInfo" class="small text-muted"></div>
           <hr class="my-3">

@@ -79,10 +79,8 @@ $nombreUsuario = $datosUsuario['nombre'] ?? ('Empleado #' . $noEmpSesion);
                             <i class="fas fa-user-circle fa-lg"></i>
                         </a>
                         <div class="dropdown-menu dropdown-menu-right shadow" aria-labelledby="userDropdown">
-                            <a class="dropdown-item" href="../loginMaster/inicio.php">
-                                <i class="fas fa-th-large fa-sm fa-fw mr-2 text-gray-400"></i> Portal MESS
-                            </a>
-                            <div class="dropdown-divider"></div>
+                            <!-- Sólo "Salir" (vuelve al inicio de loginMaster): el enlace
+                                 "Portal MESS" llevaba al mismo lugar con otro nombre. -->
                             <a class="dropdown-item" href="logout.php">
                                 <i class="fas fa-sign-out-alt fa-sm fa-fw mr-2 text-gray-400"></i> Salir
                             </a>

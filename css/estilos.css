@@ -158,6 +158,60 @@ a:hover { color: var(--accent-dark); }
     .portal-marca-sistema { padding-left: 0; border-left: 0; }
 }
 
+/* ===== Portal del candidato: secciones plegables y lista de documentos =====
+   Son 10 tipos de documento: en cajas grandes la página medía ~1500px de alto y
+   el candidato no veía dónde terminaba. Ahora cada sección se pliega y los
+   documentos son renglones de una línea. */
+.portal-resumen {
+    background: var(--card-bg); border: 1px solid var(--border);
+    border-radius: .5rem; box-shadow: var(--shadow);
+    padding: 1rem 1.15rem; margin-bottom: 1rem;
+}
+.portal-progreso { height: .5rem; border-radius: 1rem; background: var(--card-soft); overflow: hidden; }
+.portal-progreso > div { height: 100%; background: var(--accent); transition: width .3s ease; }
+
+.portal-sec { margin-bottom: 1rem; border: 1px solid var(--border); border-radius: .5rem;
+              background: var(--card-bg); box-shadow: var(--shadow); overflow: hidden; }
+.portal-sec-head {
+    display: flex; align-items: center; gap: .75rem; width: 100%;
+    padding: .8rem 1rem; cursor: pointer; background: none; border: 0; text-align: left;
+    color: var(--text); font-weight: 700;
+}
+.portal-sec-head:hover { background: var(--card-soft); }
+.portal-sec-head > i:first-child { color: var(--accent); }
+.portal-sec-head .portal-sec-chevron { margin-left: auto; transition: transform .2s ease; color: var(--text-muted); }
+.portal-sec-head[aria-expanded="true"] .portal-sec-chevron { transform: rotate(180deg); }
+.portal-sec-body { padding: 0 1rem 1rem; border-top: 1px solid var(--border); }
+
+/* Un documento = un renglón. El input de archivo vive a la derecha y no se
+   estira: así entran los 10 tipos en una pantalla y media. */
+.portal-doc {
+    display: flex; align-items: center; gap: .6rem 1rem; flex-wrap: wrap;
+    padding: .55rem 0; border-bottom: 1px solid var(--border);
+}
+.portal-doc:last-of-type { border-bottom: 0; }
+.portal-doc-nom { flex: 1 1 15rem; min-width: 0; font-size: .9rem; }
+.portal-doc-archivo { display: flex; align-items: center; gap: .4rem; flex: 0 1 auto; }
+.portal-doc .docNombre { word-break: break-all; }
+/* Botón "Elegir archivo": el input real va oculto dentro del label. */
+.portal-file { cursor: pointer; max-width: 13rem; }
+.portal-file .portal-file-txt {
+    display: inline-block; max-width: 9.5rem; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
+}
+.portal-file.tiene-archivo { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+
+/* Barra de envío pegada abajo: aparece sólo cuando hay archivos elegidos, para
+   no obligar a bajar hasta el final de la lista para subirlos. */
+.portal-barra {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 1030;
+    display: none; align-items: center; justify-content: center; gap: 1rem;
+    padding: .7rem 1rem; background: var(--card-bg);
+    border-top: 1px solid var(--border); box-shadow: 0 -.35rem 1rem rgba(0, 0, 0, .08);
+}
+.portal-barra.activa { display: flex; }
+body.portal-con-barra { padding-bottom: 4.5rem; }
+
 /* ===== Etiqueta de contexto: de qué vacante son los candidatos de la tabla ===== */
 .vac-contexto {
     display: flex; align-items: center; justify-content: space-between;

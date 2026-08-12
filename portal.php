@@ -57,6 +57,25 @@ if ($valido) {
 }
 $faltanDatos = $valido ? sivacDatosAltaFaltantes($datos) : [];
 
+// Avance del expediente, para la barra de progreso y los contadores de cada
+// sección. Un documento RECHAZADO no cuenta como entregado: hay que volver a
+// subirlo, y marcarlo como hecho sería mentirle al candidato.
+$docsObligatorios = 0; $docsEntregados = 0;
+foreach ($tipos as $t) {
+    if (!$t['obligatorio']) continue;
+    $docsObligatorios++;
+    $d = $ultimoPorTipo[$t['id']] ?? null;
+    if ($d && $d['validacion'] !== 'rechazado') $docsEntregados++;
+}
+// Los datos cuentan como un paso más: es lo otro que el candidato tiene que hacer.
+$pasosTotal  = $docsObligatorios + 1;
+$pasosHechos = $docsEntregados + (empty($faltanDatos) ? 1 : 0);
+$avance      = $pasosTotal ? (int)round($pasosHechos * 100 / $pasosTotal) : 0;
+
+// Se abre UNA sección: la de datos si falta capturarlos (es lo primero), si no
+// la de documentos. Con las dos abiertas volvíamos a la página kilométrica.
+$abrirDatos = !empty($faltanDatos);
+
 /** Escape corto para este archivo. */
 function h($s): string { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 
@@ -105,24 +124,40 @@ function estadoDoc(?array $doc): string {
         Si crees que es un error, comunícate con Recursos Humanos.</p>
     </div>
 <?php else: ?>
-    <div class="my-4">
-        <h3 class="mb-1"><i class="fas fa-user-check text-primary mr-2"></i>Hola, <?= h($cand['nombre']) ?></h3>
-        <p class="text-muted mb-1">Estás por completar tu expediente para la vacante
-            <strong><?= h($cand['puesto']) ?></strong> (<?= h($cand['folio']) ?>).</p>
-        <?php if ($cand['fecha_limite_documentos']): ?>
-            <p class="small text-danger mb-0"><i class="fas fa-clock mr-1"></i>
-                Fecha límite para entregar tus documentos:
-                <strong><?= h(date('d/m/Y', strtotime($cand['fecha_limite_documentos']))) ?></strong></p>
-        <?php endif; ?>
+    <!-- Resumen: quién es, para qué vacante, cuánto lleva y hasta cuándo tiene.
+         Todo lo que antes ocupaba media pantalla, en una sola tarjeta. -->
+    <div class="portal-resumen mt-3">
+        <div class="d-flex justify-content-between align-items-start flex-wrap mb-2" style="gap:.5rem 1rem">
+            <div>
+                <h5 class="mb-1">Hola, <?= h($cand['nombre']) ?></h5>
+                <div class="small text-muted"><?= h($cand['puesto']) ?> · <?= h($cand['folio']) ?></div>
+            </div>
+            <?php if ($cand['fecha_limite_documentos']): ?>
+                <div class="small text-danger text-right"><i class="fas fa-clock mr-1"></i>Entrega hasta el<br>
+                    <strong><?= h(date('d/m/Y', strtotime($cand['fecha_limite_documentos']))) ?></strong></div>
+            <?php endif; ?>
+        </div>
+        <div class="portal-progreso" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+             aria-valuenow="<?= $avance ?>"><div id="barraAvance" style="width:<?= $avance ?>%"></div></div>
+        <div class="small text-muted mt-1"><span id="avanceTxt"><?= $pasosHechos ?> de <?= $pasosTotal ?></span>
+            pasos completos. Puedes cerrar esta página y volver con el mismo enlace.</div>
     </div>
 
     <!-- ── Datos del alta ── -->
-    <div class="card mb-4">
-        <div class="card-header"><i class="fas fa-id-card mr-2"></i>Tus datos</div>
-        <div class="card-body">
+    <div class="portal-sec">
+        <button class="portal-sec-head" type="button" data-toggle="collapse" data-target="#secDatos"
+                aria-expanded="<?= $abrirDatos ? 'true' : 'false' ?>">
+            <i class="fas fa-id-card"></i>
+            <span>Tus datos</span>
+            <span class="badge <?= $faltanDatos ? 'badge-warning' : 'badge-success' ?>" id="badgeDatos">
+                <?= $faltanDatos ? 'Faltan ' . count($faltanDatos) : 'Completos' ?>
+            </span>
+            <i class="fas fa-chevron-down portal-sec-chevron"></i>
+        </button>
+        <div class="collapse<?= $abrirDatos ? ' show' : '' ?>" id="secDatos">
+        <div class="portal-sec-body pt-3">
             <p class="small text-muted">Captura tus datos tal como aparecen en tus documentos oficiales.
-               Puedes guardarlos aunque aún no subas todos los archivos, pero
-               <strong>no se guardan solos</strong>: usa el botón «Guardar mis datos».</p>
+               <strong>No se guardan solos</strong>: usa el botón «Guardar mis datos».</p>
             <div id="avisoFaltan" class="alert alert-warning py-2 small <?= $faltanDatos ? '' : 'd-none' ?>">
                 <i class="fas fa-exclamation-triangle mr-1"></i>
                 Te falta capturar: <span id="listaFaltan"><?= h(implode(', ', $faltanDatos)) ?></span>.
@@ -182,42 +217,65 @@ function estadoDoc(?array $doc): string {
                 </div>
             </form>
         </div>
+        </div>
     </div>
 
     <!-- ── Documentos ── -->
-    <div class="card mb-5">
-        <div class="card-header"><i class="fas fa-folder-open mr-2"></i>Tus documentos</div>
-        <div class="card-body">
-            <p class="small text-muted">Formatos aceptados: PDF, JPG o PNG (máx. 10 MB). Recursos Humanos
-               los revisará; si alguno se rechaza, verás el motivo y podrás volver a subirlo.
-               Puedes elegir varios archivos y subirlos de una vez con el botón de abajo.</p>
+    <div class="portal-sec">
+        <button class="portal-sec-head" type="button" data-toggle="collapse" data-target="#secDocs"
+                aria-expanded="<?= $abrirDatos ? 'false' : 'true' ?>">
+            <i class="fas fa-folder-open"></i>
+            <span>Tus documentos</span>
+            <span class="badge <?= $docsEntregados >= $docsObligatorios ? 'badge-success' : 'badge-warning' ?>" id="badgeDocs">
+                <span id="docsHechos"><?= $docsEntregados ?></span> de <?= $docsObligatorios ?>
+            </span>
+            <i class="fas fa-chevron-down portal-sec-chevron"></i>
+        </button>
+        <div class="collapse<?= $abrirDatos ? '' : ' show' ?>" id="secDocs">
+        <div class="portal-sec-body pt-3">
+            <p class="small text-muted">PDF, JPG o PNG (máx. 10 MB). Recursos Humanos los revisará; si
+               alguno se rechaza verás el motivo y podrás volver a subirlo. Puedes elegir varios y
+               subirlos de una vez.</p>
             <?php foreach ($tipos as $t): $doc = $ultimoPorTipo[$t['id']] ?? null; ?>
-                <div class="border rounded p-3 mb-2 docFila" data-tipo="<?= (int)$t['id'] ?>">
-                    <div class="d-flex justify-content-between align-items-center flex-wrap">
-                        <div>
-                            <strong><?= h($t['nombre']) ?></strong>
-                            <?= $t['obligatorio'] ? '<span class="text-danger">*</span>' : '<span class="text-muted small">(opcional)</span>' ?>
-                            <div class="small text-muted"><span class="docEstado"><?= estadoDoc($doc) ?></span><span class="docNombre"><?= $doc ? ' · ' . h($doc['nombre_original']) : '' ?></span></div>
-                            <div class="small text-danger docMotivo <?= ($doc && $doc['validacion'] === 'rechazado' && $doc['motivo_validacion']) ? '' : 'd-none' ?>">
-                                <i class="fas fa-exclamation-circle mr-1"></i><span class="docMotivoTxt"><?= h($doc['motivo_validacion'] ?? '') ?></span>
-                            </div>
+                <div class="portal-doc docFila" data-tipo="<?= (int)$t['id'] ?>" data-oblig="<?= $t['obligatorio'] ? 1 : 0 ?>">
+                    <div class="portal-doc-nom">
+                        <strong><?= h($t['nombre']) ?></strong><?= $t['obligatorio'] ? '<span class="text-danger">*</span>' : ' <span class="text-muted small">(opcional)</span>' ?>
+                        <span class="docEstado ml-1"><?= estadoDoc($doc) ?></span><span class="docNombre small text-muted"><?= $doc ? ' · ' . h($doc['nombre_original']) : '' ?></span>
+                        <div class="small text-danger docMotivo <?= ($doc && $doc['validacion'] === 'rechazado' && $doc['motivo_validacion']) ? '' : 'd-none' ?>">
+                            <i class="fas fa-exclamation-circle mr-1"></i><span class="docMotivoTxt"><?= h($doc['motivo_validacion'] ?? '') ?></span>
                         </div>
-                        <form class="formDoc form-inline mt-2" data-tipo="<?= (int)$t['id'] ?>">
-                            <input type="file" class="form-control-file mr-2" name="documento" accept=".pdf,.jpg,.jpeg,.png" required>
-                            <button type="submit" class="btn btn-sm btn-outline-primary"><i class="fas fa-upload mr-1"></i>Subir</button>
-                        </form>
                     </div>
+                    <!-- El input nativo se recorta feo ("No se ha seleccionado archivo") y
+                         no cabe en el renglón: se esconde dentro del label y el nombre del
+                         archivo elegido lo pinta el JS. Sin `required`: un input oculto y
+                         obligatorio bloquea el submit sin decir por qué. -->
+                    <form class="formDoc portal-doc-archivo" data-tipo="<?= (int)$t['id'] ?>">
+                        <label class="btn btn-sm btn-outline-secondary portal-file mb-0">
+                            <i class="fas fa-paperclip mr-1"></i><span class="portal-file-txt">Elegir archivo</span>
+                            <input type="file" name="documento" accept=".pdf,.jpg,.jpeg,.png" hidden>
+                        </label>
+                        <button type="submit" class="btn btn-sm btn-outline-primary" title="Subir este documento">
+                            <i class="fas fa-upload"></i>
+                        </button>
+                    </form>
                 </div>
             <?php endforeach; ?>
-            <div class="text-right mt-3">
-                <button type="button" class="btn btn-primary" id="btnSubirTodos" disabled>
-                    <i class="fas fa-cloud-upload-alt mr-1"></i>Subir seleccionados
-                </button>
-            </div>
+        </div>
         </div>
     </div>
 <?php endif; ?>
 </div>
+
+<?php if ($valido && $enDocumentacion): ?>
+<!-- Barra de envío: sólo aparece cuando hay archivos elegidos. Antes el botón
+     vivía al final de la lista y había que recorrerla entera para llegar a él. -->
+<div class="portal-barra" id="barraSubir">
+    <span class="small text-muted d-none d-sm-inline" id="barraTexto"></span>
+    <button type="button" class="btn btn-primary" id="btnSubirTodos" disabled>
+        <i class="fas fa-cloud-upload-alt mr-1"></i>Subir seleccionados
+    </button>
+</div>
+<?php endif; ?>
 
 <?php if ($valido && $enDocumentacion): ?>
 <script src="vendor/jquery/jquery.min.js"></script>
@@ -228,7 +286,31 @@ function estadoDoc(?array $doc): string {
 $(function () {
     // El token viaja en cada petición: es la única credencial del portal.
     var TOKEN = <?= json_encode($token) ?>;
+    var DOCS_OBLIG = <?= (int)$docsObligatorios ?>;
     var datosSucios = false;   // hay cambios tecleados sin guardar
+
+    /**
+     * Recalcula los contadores de las dos secciones y la barra de progreso.
+     * Se hace leyendo el DOM (no llevando un contador aparte) para que no pueda
+     * desincronizarse de lo que el candidato está viendo. Un documento cuenta
+     * como entregado si su badge no es «Falta subir» ni «Rechazado».
+     */
+    function recalcularAvance() {
+        var entregados = $('.docFila[data-oblig="1"]').filter(function () {
+            var $b = $(this).find('.docEstado .badge');
+            return $b.length && !$b.hasClass('badge-secondary') && !$b.hasClass('badge-danger');
+        }).length;
+        var datosOk = $('#avisoFaltan').hasClass('d-none');
+
+        $('#docsHechos').text(entregados);
+        $('#badgeDocs').toggleClass('badge-success', entregados >= DOCS_OBLIG)
+                       .toggleClass('badge-warning', entregados < DOCS_OBLIG);
+
+        var total  = DOCS_OBLIG + 1;
+        var hechos = entregados + (datosOk ? 1 : 0);
+        $('#avanceTxt').text(hechos + ' de ' + total);
+        $('#barraAvance').css('width', Math.round(hechos * 100 / total) + '%');
+    }
 
     // ── Datos del candidato ────────────────────────────────────────────────
     $('#formDatos').on('input change', 'input, select', function () { datosSucios = true; });
@@ -246,6 +328,10 @@ $(function () {
                 var faltan = res.faltan || [];
                 $('#avisoFaltan').toggleClass('d-none', faltan.length === 0);
                 $('#listaFaltan').text(faltan.join(', '));
+                $('#badgeDatos').text(faltan.length ? 'Faltan ' + faltan.length : 'Completos')
+                    .toggleClass('badge-success', faltan.length === 0)
+                    .toggleClass('badge-warning', faltan.length > 0);
+                recalcularAvance();
                 mostrarToast(res.message, faltan.length ? 'warning' : 'success');
             } else { mostrarToast((res && res.message) || 'No se pudo guardar.', 'error'); }
         });
@@ -267,7 +353,17 @@ $(function () {
         // Sólo se limpia ESTE input: los archivos elegidos en los demás renglones
         // se conservan (antes la página se recargaba y se perdían todos).
         $fila.find('input[type=file]').val('');
+        pintarNombreElegido($fila.find('input[type=file]'));
         actualizarBtnTodos();
+        recalcularAvance();
+    }
+
+    /** Pone en el botón el nombre del archivo elegido (o el texto por omisión). */
+    function pintarNombreElegido($input) {
+        var f = $input[0] && $input[0].files.length ? $input[0].files[0].name : '';
+        var $label = $input.closest('.portal-file');
+        $label.toggleClass('tiene-archivo', !!f)
+              .find('.portal-file-txt').text(f || 'Elegir archivo').attr('title', f);
     }
 
     /** Sube el archivo de un renglón. cb(ok) al terminar. */
@@ -293,17 +389,28 @@ $(function () {
         });
     }
 
-    /** Habilita «Subir seleccionados» y le pone cuántos hay pendientes. */
+    /**
+     * Habilita «Subir seleccionados» y muestra la barra de abajo sólo si hay algo
+     * elegido; el padding del body evita que la barra tape el último renglón.
+     */
     function actualizarBtnTodos() {
         var n = $('.formDoc input[type=file]').filter(function () { return this.files.length > 0; }).length;
         $('#btnSubirTodos').prop('disabled', n === 0).html(
             '<i class="fas fa-cloud-upload-alt mr-1"></i>Subir seleccionados' + (n ? ' (' + n + ')' : '')
         );
+        $('#barraTexto').text(n === 1 ? '1 archivo listo para subir' : n + ' archivos listos para subir');
+        $('#barraSubir').toggleClass('activa', n > 0);
+        $('body').toggleClass('portal-con-barra', n > 0);
     }
-    $('.formDoc').on('change', 'input[type=file]', actualizarBtnTodos);
+    $('.formDoc').on('change', 'input[type=file]', function () {
+        pintarNombreElegido($(this));
+        actualizarBtnTodos();
+    });
 
     $('.formDoc').on('submit', function (e) {
         e.preventDefault();
+        var input = $(this).find('input[type=file]')[0];
+        if (!input || !input.files.length) { mostrarToast('Elige un archivo primero.', 'warning'); return; }
         subirFila($(this), function (ok, msg) { if (ok) mostrarToast(msg, 'success'); });
     });
 

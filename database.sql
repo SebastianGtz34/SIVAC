@@ -13,10 +13,11 @@
 -- Idempotente: se puede ejecutar más de una vez sin romper datos existentes
 -- (CREATE TABLE IF NOT EXISTS + INSERT IGNORE en los catálogos).
 --
--- OJO, la otra cara de lo mismo: si una tabla YA existe, este script NO la
--- altera. Mientras la BD sea desechable (hoy lo es: SIVAC no está en
--- producción) reinstalar es la vía. El día que haya datos que no se puedan
--- perder, un cambio de esquema tendrá que aplicarse a mano con ALTER.
+-- ⚠️ OJO, la otra cara de lo mismo: si una tabla YA existe, este script NO la
+-- altera. SIVAC **está en producción con datos reales**, así que reimportar allá
+-- no actualiza nada y borrar la BD para reinstalar no es opción: todo cambio de
+-- esquema se edita aquí Y se aplica a mano con ALTER en producción. Los ALTER
+-- pendientes viven en DESPLIEGUE.md.
 --
 -- En cPanel: crear la BD desde el panel (respetando el prefijo de la cuenta)
 -- y ejecutar este script SIN la línea CREATE DATABASE si el panel la pre-crea.
@@ -345,14 +346,20 @@ CREATE TABLE IF NOT EXISTS accesos_consulta (
 -- ----------------------------------------------------------------------------
 -- Accesos por token del portal del candidato (Fase B).
 -- Única superficie pública de SIVAC: el candidato entra por portal.php?t=<token>
--- SIN pasar por loginMaster. Se guarda SOLO el hash SHA-256 del token (nunca el
--- token en claro), mismo criterio que una contraseña: si se filtra la BD, los
--- enlaces no sirven. Desactivar = poner activo=0 (invalida el token).
+-- SIN pasar por loginMaster. Desactivar = poner activo=0 (invalida el token).
+--
+-- `token_hash` es lo que se compara al entrar (índice único). `token` guarda el
+-- mismo valor en claro para que RRHH pueda VOLVER A VER el enlace que ya le
+-- compartió al candidato: sin él, la única opción era generar uno nuevo, que
+-- invalida el que el candidato ya tenía. Es una decisión consciente (2026-08-12):
+-- quien pueda leer la BD ve los enlaces vigentes, que caducan a los 15 días y
+-- sólo abren el portal de ese candidato.
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS candidato_accesos (
     id           INT UNSIGNED NOT NULL AUTO_INCREMENT,
     id_candidato INT UNSIGNED NOT NULL,
-    token_hash   CHAR(64) NOT NULL COMMENT 'hash SHA-256 del token; el claro nunca se guarda',
+    token_hash   CHAR(64) NOT NULL COMMENT 'hash SHA-256 del token; es lo que se compara al entrar',
+    token        CHAR(64) NULL COMMENT 'el mismo token en claro, para poder repetir el enlace; NULL en los accesos anteriores al 2026-08-12',
     fecha_expira DATETIME NOT NULL,
     activo       TINYINT(1) NOT NULL DEFAULT 1,
     usos         INT UNSIGNED NOT NULL DEFAULT 0,

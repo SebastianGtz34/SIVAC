@@ -59,6 +59,22 @@ function psicometricoRegistrado(array $c): bool {
     return !empty($c['psicometrico_fecha']) && trim((string)($c['psicometrico_resultado'] ?? '')) !== '';
 }
 
+/**
+ * Aviso (texto vacío = todo en orden) cuando la fecha límite de documentos cae
+ * DESPUÉS del ingreso: el expediente debería estar completo antes de que la
+ * persona entre. No bloquea a propósito —hay altas urgentes que se cierran con
+ * documentos en tránsito— pero RRHH tiene que verlo, porque las dos fechas se
+ * capturan por separado y nada las relacionaba.
+ */
+function avisoFechaDocs(?string $limite, ?string $ingreso): string {
+    if (!$limite || !$ingreso) return '';
+    $tl = strtotime($limite);
+    $ti = strtotime($ingreso);
+    if (!$tl || !$ti || $tl <= $ti) return '';
+    return 'Ojo: la entrega de documentos vence el ' . date('d/m/Y', $tl)
+         . ', DESPUÉS del ingreso (' . date('d/m/Y', $ti) . ').';
+}
+
 switch ($accion) {
 
     case 'listar': {
@@ -266,20 +282,45 @@ switch ($accion) {
     // NOTA: RRHH ya NO sube documentos. Los sube el candidato desde su portal
     // (acciones_portal.php, origen='candidato'); aquí RRHH sólo los ve y valida.
 
-    case 'generar_enlace_portal': {
-        // Genera (o regenera) el enlace del portal del candidato para copiarlo y
-        // compartirlo. Con el correo apagado en pruebas, es la vía de entrega.
-        // Regenerar invalida el enlace anterior. El token en claro se devuelve una
-        // sola vez (en la BD sólo queda su hash).
-        $id = (int)($_POST['id'] ?? 0);
+    case 'enlace_portal': {
+        // Enlace del portal del candidato, en dos modos:
+        //   (sin modo) → devuelve el enlace VIGENTE si lo hay, sin tocar nada. Es
+        //                el mismo que el candidato ya recibió: repetírselo no le
+        //                rompe el que tiene.
+        //   modo=nuevo → genera uno nuevo, lo que INVALIDA el anterior.
+        // Antes esto era una sola acción que siempre regeneraba: pedirle a RRHH el
+        // enlace por segunda vez dejaba tirado al candidato a media documentación.
+        $id   = (int)($_POST['id'] ?? 0);
+        $modo = $_POST['modo'] ?? '';
         if ($id <= 0) responder(false, 'Id inválido.');
         $c = ctxCandidato($conn, $id);
         if (!$c) responder(false, 'Candidato no encontrado.');
         if ($c['estatus'] !== 'documentacion') responder(false, 'El candidato no está en documentación.');
 
-        $token = sivacGenerarAcceso($conn, $id, $noEmp);
-        $url   = sivacUrlPortal($token);
-        responder(true, 'Enlace generado (vigencia 15 días). Regenerarlo invalida el anterior.', ['url' => $url]);
+        if ($modo === 'nuevo') {
+            $token = sivacGenerarAcceso($conn, $id, $noEmp);
+            responder(true, 'Enlace nuevo generado (vigencia 15 días). El anterior quedó invalidado.', [
+                'url'    => sivacUrlPortal($token),
+                'nuevo'  => 1,
+                'expira' => date('d/m/Y', strtotime('+15 days')),
+            ]);
+        }
+
+        $acceso = sivacAccesoVigente($conn, $id);
+        if (!$acceso) responder(true, 'Este candidato todavía no tiene enlace.', ['vigente' => 0]);
+        if (empty($acceso['token'])) {
+            // Acceso creado antes de que se guardara el token en claro: sigue
+            // funcionando para el candidato, pero aquí ya no se puede mostrar.
+            responder(true, 'El enlace vigente se generó antes de esta versión y ya no se puede volver a mostrar.', [
+                'vigente' => 1, 'sin_token' => 1,
+                'expira'  => date('d/m/Y', strtotime($acceso['fecha_expira'])),
+            ]);
+        }
+        responder(true, 'Es el mismo enlace que ya tiene el candidato.', [
+            'vigente' => 1,
+            'url'     => sivacUrlPortal($acceso['token']),
+            'expira'  => date('d/m/Y', strtotime($acceso['fecha_expira'])),
+        ]);
     }
 
     case 'validar_documento': {
@@ -358,10 +399,23 @@ switch ($accion) {
         $id = (int)($_POST['id'] ?? $_GET['id'] ?? 0);
         if ($id <= 0) responder(false, 'Id inválido.');
         $datos = sivacDatosAlta($conn, $id);
+
+        // Las dos fechas del trámite viajan aquí para que el modal las muestre
+        // juntas: se capturan en campos distintos y hasta ahora no había dónde
+        // ver que el límite de documentos había quedado después del ingreso.
+        $stmt = $conn->prepare(
+            "SELECT fecha_ingreso, fecha_limite_documentos, prorrogas FROM contrataciones WHERE id_candidato = ? LIMIT 1"
+        );
+        $stmt->bind_param('i', $id); $stmt->execute();
+        $ct = $stmt->get_result()->fetch_assoc(); $stmt->close();
+        $ct = $ct ?: ['fecha_ingreso' => null, 'fecha_limite_documentos' => null, 'prorrogas' => 0];
+        $ct['aviso'] = avisoFechaDocs($ct['fecha_limite_documentos'], $ct['fecha_ingreso']);
+
         responder(true, '', [
             'datos'   => $datos,
             'faltan'  => sivacDatosAltaFaltantes($datos),
             'catalogo_sangre' => sivacTiposSangre(),
+            'contratacion'    => $ct,
         ]);
     }
 
@@ -399,7 +453,13 @@ switch ($accion) {
         $stmt = $conn->prepare("UPDATE contrataciones SET fecha_ingreso = ? WHERE id_candidato = ?");
         $stmt->bind_param('si', $fechaVal, $id);
         $ok = $stmt->execute(); $stmt->close();
-        responder($ok, $ok ? 'Fecha de ingreso registrada.' : 'No se pudo registrar.');
+        if (!$ok) responder(false, 'No se pudo registrar.');
+
+        $stmt = $conn->prepare("SELECT fecha_limite_documentos FROM contrataciones WHERE id_candidato = ? LIMIT 1");
+        $stmt->bind_param('i', $id); $stmt->execute();
+        $ct = $stmt->get_result()->fetch_assoc(); $stmt->close();
+        $aviso = avisoFechaDocs($ct['fecha_limite_documentos'] ?? null, $fechaVal);
+        responder(true, $aviso ?: 'Fecha de ingreso registrada.', ['aviso' => $aviso]);
     }
 
     case 'prorroga_documentos': {
@@ -409,7 +469,7 @@ switch ($accion) {
         $tf = strtotime($fecha);
         if (!$tf) responder(false, 'Fecha inválida.');
 
-        $stmt = $conn->prepare("SELECT fecha_limite_documentos FROM contrataciones WHERE id_candidato = ? LIMIT 1");
+        $stmt = $conn->prepare("SELECT fecha_limite_documentos, fecha_ingreso FROM contrataciones WHERE id_candidato = ? LIMIT 1");
         $stmt->bind_param('i', $id); $stmt->execute();
         $row = $stmt->get_result()->fetch_assoc(); $stmt->close();
         if (!$row) responder(false, 'No hay contratación en curso.');
@@ -432,7 +492,9 @@ switch ($accion) {
                 'correo_html' => 'Hola ' . htmlspecialchars($c['nombre']) . ',<br><br>Se amplió la fecha límite para entregar tu documentación hasta el <strong>' . date('d/m/Y', $tf) . '</strong>.',
             ]);
         }
-        responder($ok, $ok ? 'Prórroga registrada.' : 'No se pudo registrar.');
+        if (!$ok) responder(false, 'No se pudo registrar.');
+        $aviso = avisoFechaDocs($fechaVal, $row['fecha_ingreso'] ?? null);
+        responder(true, $aviso ?: 'Prórroga registrada.', ['aviso' => $aviso]);
     }
 
     case 'enviar_reglamento': {

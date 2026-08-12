@@ -2,11 +2,12 @@
 /**
  * accesos.php — Tokens de acceso del portal del candidato (Fase B).
  *
- * Única autenticación de SIVAC fuera de la cookie de loginMaster. Se guarda SOLO
- * el hash SHA-256 del token (nunca el token en claro): si se filtra la BD, los
- * enlaces no sirven, igual que con una contraseña. El token en claro sólo existe
- * en el momento de generarlo (se entrega una vez a RRHH para compartirlo) y en el
- * enlace que abre el candidato. Regenerar un enlace revoca el anterior.
+ * Única autenticación de SIVAC fuera de la cookie de loginMaster. La entrada se
+ * resuelve por el hash SHA-256 del token; el token en claro se guarda ADEMÁS en
+ * la misma fila para poder repetirle a RRHH el enlace que ya compartió (ver el
+ * comentario de la tabla en database.sql). Regenerar un enlace revoca el anterior,
+ * así que "repetir" y "generar nuevo" son dos operaciones distintas: la primera
+ * no toca nada, la segunda deja al candidato con el enlace viejo inservible.
  */
 
 if (!function_exists('sivacGenerarAcceso')) {
@@ -17,7 +18,8 @@ if (!function_exists('sivacGenerarAcceso')) {
      */
     function sivacGenerarAcceso(mysqli $conn, int $idCandidato, int $creadoPor, int $diasValidez = 15): string {
         // Revoca los enlaces previos del candidato (regenerar = invalidar el anterior).
-        $upd = $conn->prepare("UPDATE candidato_accesos SET activo = 0 WHERE id_candidato = ? AND activo = 1");
+        // El claro se borra al revocar: en la BD sólo vive el del enlace que hoy sirve.
+        $upd = $conn->prepare("UPDATE candidato_accesos SET activo = 0, token = NULL WHERE id_candidato = ? AND activo = 1");
         $upd->bind_param('i', $idCandidato);
         $upd->execute();
         $upd->close();
@@ -27,13 +29,34 @@ if (!function_exists('sivacGenerarAcceso')) {
         $expira = date('Y-m-d H:i:s', strtotime('+' . max(1, $diasValidez) . ' days'));
 
         $stmt = $conn->prepare(
-            "INSERT INTO candidato_accesos (id_candidato, token_hash, fecha_expira, creado_por)
-             VALUES (?, ?, ?, ?)"
+            "INSERT INTO candidato_accesos (id_candidato, token_hash, token, fecha_expira, creado_por)
+             VALUES (?, ?, ?, ?, ?)"
         );
-        $stmt->bind_param('issi', $idCandidato, $hash, $expira, $creadoPor);
+        $stmt->bind_param('isssi', $idCandidato, $hash, $token, $expira, $creadoPor);
         $stmt->execute();
         $stmt->close();
         return $token;
+    }
+
+    /**
+     * Acceso vigente de un candidato (activo y sin vencer) o null. Sirve para
+     * REPETIR el enlace en vez de generar uno nuevo.
+     *
+     * `token` puede venir NULL en los accesos creados antes de que se guardara el
+     * claro: en ese caso hay acceso vigente pero no se puede volver a mostrar, y
+     * quien llama debe decirlo en vez de fingir que no existe.
+     */
+    function sivacAccesoVigente(mysqli $conn, int $idCandidato): ?array {
+        $stmt = $conn->prepare(
+            "SELECT id, token, fecha_expira FROM candidato_accesos
+             WHERE id_candidato = ? AND activo = 1 AND fecha_expira > NOW()
+             ORDER BY id DESC LIMIT 1"
+        );
+        $stmt->bind_param('i', $idCandidato);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        return $row ?: null;
     }
 
     /**
@@ -66,7 +89,7 @@ if (!function_exists('sivacGenerarAcceso')) {
 
     /** Invalida todos los accesos activos de un candidato (p. ej. al completar el alta). */
     function sivacRevocarAccesos(mysqli $conn, int $idCandidato): void {
-        $upd = $conn->prepare("UPDATE candidato_accesos SET activo = 0 WHERE id_candidato = ? AND activo = 1");
+        $upd = $conn->prepare("UPDATE candidato_accesos SET activo = 0, token = NULL WHERE id_candidato = ? AND activo = 1");
         $upd->bind_param('i', $idCandidato);
         $upd->execute();
         $upd->close();

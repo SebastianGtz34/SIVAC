@@ -51,7 +51,7 @@ switch ($accion) {
     case 'solicitar_vacante': {
         // El jefe levanta la requisición. Queda pendiente del VoBo de RRHH.
         if (!puedeSolicitarVacante($conn, $noEmp)) {
-            responder(false, 'Solo un jefe con personal a cargo puede levantar una requisición.');
+            responder(false, 'No tienes permiso para levantar requisiciones.');
         }
 
         $idPuesto    = (int)($_POST['id_puesto'] ?? 0);

@@ -51,9 +51,10 @@ esquema se edita ahí; no hay scripts de migración ni de datos demo aparte.
 
 Es idempotente (`CREATE TABLE IF NOT EXISTS` + `INSERT IGNORE`), así que correrlo
 dos veces no rompe nada. La otra cara de eso: **si una tabla ya existe, el script
-no la altera**. Mientras la BD sea desechable —hoy lo es, SIVAC no está en
-producción— reinstalar es la vía. Cuando haya datos que no se puedan perder, un
-cambio de esquema habrá que aplicarlo a mano con `ALTER`.
+no la altera**. ⚠️ **SIVAC ya está en producción con datos reales**, así que
+reimportar allá no cambia el esquema y borrar la BD no es opción: cada cambio se
+edita aquí **y además** se aplica a mano con `ALTER` en producción. Los `ALTER`
+pendientes y el procedimiento completo están en `DESPLIEGUE.md`.
 
 ## Instalación local (WAMP)
 1. Ejecutar `database.sql`:

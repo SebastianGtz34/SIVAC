@@ -190,7 +190,8 @@ $(function () {
         setResultadoPsico($(this).hasClass('active') ? '' : $(this).data('val'));
     });
 
-    $('#btnNuevoCandidato').on('click', function () {
+    /** Modal de registro en blanco, con la vacante del contexto ya puesta si la hay. */
+    function abrirModalNuevo() {
         $('#formCandidato')[0].reset();
         $('#cand_id').val('');
         setResultadoRrhh('');
@@ -200,7 +201,9 @@ $(function () {
         $('#modalCandidatoTitulo').text('Nuevo candidato');
         if (window.VACANTE_PRE) $('#cand_vacante').val(window.VACANTE_PRE);
         $('#modalCandidato').modal('show');
-    });
+    }
+
+    $('#btnNuevoCandidato').on('click', abrirModalNuevo);
 
     $('#tablaCandidatos tbody').on('click', '.btnEditar', function () {
         var id = $(this).data('id');
@@ -431,6 +434,15 @@ $(function () {
     // El resultado de la entrevista del jefe lo captura ahora el propio jefe en su
     // portal (embed_solicitante.php → acciones_solicitante.php). RRHH ya no lo hace.
 
-    cargarVacantes(cargar);
+    cargarVacantes(function () {
+        cargar();
+        // Llegar desde «Ver candidatos» es ir a registrar a alguien para ESA
+        // vacante: el modal se abre solo, ya filtrado y con la vacante puesta.
+        // Sólo si sigue admitiendo candidatos —una vacante cerrada o pausada no
+        // está en el select del formulario y abriría el modal sin vacante—.
+        if (window.VACANTE_PRE && $('#cand_vacante option[value="' + window.VACANTE_PRE + '"]').length) {
+            abrirModalNuevo();
+        }
+    });
     cargarCatalogos();
 });

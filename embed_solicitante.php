@@ -9,9 +9,10 @@ require_once 'auth.php';
 require_once 'includes/assets.php';
 $noEmpSesion = requiereSesionPage();
 $embed = true;
-// Solo a un jefe con equipo se le pinta el botón de levantar requisición. El
-// gate real está en acciones_solicitante.php (puedeSolicitarVacante); esto solo
-// evita ofrecer un formulario que el backend va a rechazar.
+// Quien llega a esta pestaña puede levantar su requisición (ver
+// puedeSolicitarVacante en auth.php). El gate real está en
+// acciones_solicitante.php; esto solo evita ofrecer un formulario que el backend
+// va a rechazar.
 $puedeSolicitar = puedeSolicitarVacante($conn, $noEmpSesion);
 ?>
 <!DOCTYPE html>
