@@ -2,10 +2,15 @@
 /**
  * portal.php — Portal del candidato (Fase B). ⚠️ ÚNICA superficie pública de SIVAC.
  *
- * Autenticación por token del enlace (portal.php?t=<64 hex>), NUNCA por la cookie
- * de loginMaster: no incluye auth.php. Resuelve su propio contexto en el servidor
- * y sólo muestra/permite tocar AL candidato dueño del token. El candidato sube sus
- * documentos y teclea sus datos fiscales; validar/aceptar sigue del lado de RRHH.
+ * Autenticación en DOS pasos, NUNCA por la cookie de loginMaster (no incluye
+ * auth.php): el token del enlace (portal.php?t=<64 hex>) dice de quién es el
+ * expediente, y la contraseña que RRHH le dictó aparte prueba que es él. Hasta
+ * que acierta, esta página NO revela ni su nombre — quien tenga sólo el enlace no
+ * se entera de nada. Acertar abre una sesión de navegador (2 h de inactividad).
+ *
+ * Resuelve su propio contexto en el servidor y sólo muestra/permite tocar AL
+ * candidato dueño del token. El candidato sube sus documentos y teclea sus datos
+ * fiscales; validar/aceptar sigue del lado de RRHH.
  */
 require_once 'conn.php';
 require_once 'includes/accesos.php';
@@ -15,9 +20,34 @@ require_once 'includes/datos_alta.php';
 $token  = $_GET['t'] ?? '';
 $acceso = sivacResolverAcceso($conn, (string)$token);
 $valido = (bool)$acceso;
+$urlBase = 'portal.php?t=' . urlencode((string)$token);
+
+// Cerrar sesión en este navegador (el enlace y la contraseña siguen sirviendo).
+// Es para el celular prestado y el ciber, no para "salir" del expediente.
+if ($valido && isset($_GET['salir'])) {
+    sivacPortalCerrarSesion();
+    header('Location: ' . $urlBase);
+    exit;
+}
+
+// ¿Hay que pedir la contraseña? Los enlaces anteriores al 2026-08-14 no tienen
+// (pass_hash NULL) y siguen abriendo directo: no se deja tirado a nadie a media
+// documentación. RRHH puede ponerles contraseña sin cambiarles el enlace.
+$errorPass = '';
+$pideClave = $valido && sivacPortalRequiereClave($acceso) && !sivacPortalSesionValida($acceso);
+if ($pideClave && ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && isset($_POST['pass'])) {
+    $r = sivacPortalEntrar($conn, $acceso, (string)$_POST['pass']);
+    if ($r['ok']) {
+        // Redirección tras el POST: si no, recargar la página vuelve a mandar la
+        // contraseña y el navegador saca su "¿reenviar formulario?".
+        header('Location: ' . $urlBase);
+        exit;
+    }
+    $errorPass = $r['mensaje'];
+}
 
 $cand = null; $enDocumentacion = false; $tipos = []; $ultimoPorTipo = []; $datos = [];
-if ($valido) {
+if ($valido && !$pideClave) {
     $idCandidato = (int)$acceso['id_candidato'];
 
     $stmt = $conn->prepare(
@@ -55,7 +85,7 @@ if ($valido) {
     // Datos ya capturados (para precargar el formulario).
     $datos = sivacDatosAlta($conn, $idCandidato);
 }
-$faltanDatos = $valido ? sivacDatosAltaFaltantes($datos) : [];
+$faltanDatos = ($valido && !$pideClave) ? sivacDatosAltaFaltantes($datos) : [];
 
 // Avance del expediente, para la barra de progreso y los contadores de cada
 // sección. Un documento RECHAZADO no cuenta como entregado: hay que volver a
@@ -116,6 +146,35 @@ function estadoDoc(?array $doc): string {
         <h4>Enlace no válido o expirado</h4>
         <p class="text-muted">Tu enlace no funciona o ya venció. Solicita uno nuevo a Recursos Humanos.</p>
     </div>
+<?php elseif ($pideClave): ?>
+    <!-- Puerta del portal. Aquí NO va nada del candidato —ni su nombre, ni la
+         vacante—: quien llegue con el enlace y sin la contraseña no debe poder
+         confirmar siquiera de quién es el expediente. -->
+    <div class="portal-login">
+        <div class="portal-login-caja">
+            <i class="fas fa-lock fa-2x mb-3" style="color:var(--accent)"></i>
+            <h5 class="mb-1">Escribe tu contraseña</h5>
+            <p class="small text-muted mb-4">Recursos Humanos te la dio junto con este enlace,
+               en un mensaje aparte. Son 8 caracteres.</p>
+            <?php if ($errorPass !== ''): ?>
+                <div class="alert alert-danger py-2 small text-left">
+                    <i class="fas fa-exclamation-circle mr-1"></i><?= h($errorPass) ?>
+                </div>
+            <?php endif; ?>
+            <form method="post" action="<?= h($urlBase) ?>" autocomplete="off">
+                <!-- type=text y no password: el candidato la teclea de un mensaje,
+                     en un celular, y esconderla sólo le hace equivocarse. -->
+                <input type="text" name="pass" class="form-control form-control-lg text-center portal-login-campo"
+                       maxlength="12" placeholder="XXXX-XXXX" autocomplete="one-time-code"
+                       autocapitalize="characters" autocorrect="off" spellcheck="false" autofocus required>
+                <button type="submit" class="btn btn-primary btn-block mt-3">
+                    <i class="fas fa-arrow-right-to-bracket mr-1"></i>Entrar
+                </button>
+            </form>
+            <p class="small text-muted mt-4 mb-0">¿La perdiste? Pídele a Recursos Humanos que
+               te la restablezca: tu enlace y lo que ya llevas entregado no se pierden.</p>
+        </div>
+    </div>
 <?php elseif (!$enDocumentacion): ?>
     <div class="text-center" style="padding:64px 16px">
         <i class="fas fa-info-circle fa-3x text-muted mb-3"></i>
@@ -139,8 +198,17 @@ function estadoDoc(?array $doc): string {
         </div>
         <div class="portal-progreso" role="progressbar" aria-valuemin="0" aria-valuemax="100"
              aria-valuenow="<?= $avance ?>"><div id="barraAvance" style="width:<?= $avance ?>%"></div></div>
-        <div class="small text-muted mt-1"><span id="avanceTxt"><?= $pasosHechos ?> de <?= $pasosTotal ?></span>
-            pasos completos. Puedes cerrar esta página y volver con el mismo enlace.</div>
+        <div class="small text-muted mt-1 d-flex justify-content-between align-items-end flex-wrap" style="gap:.5rem">
+            <span><span id="avanceTxt"><?= $pasosHechos ?> de <?= $pasosTotal ?></span>
+                pasos completos. Puedes cerrar esta página y volver con el mismo enlace.</span>
+            <?php if (sivacPortalRequiereClave($acceso)): ?>
+                <!-- Para el celular prestado y el ciber: cierra la sesión de ESTE
+                     navegador. El enlace y la contraseña se siguen usando después. -->
+                <a href="<?= h($urlBase) ?>&amp;salir=1" class="text-muted text-nowrap"
+                   title="Cierra la sesión en este navegador; tu enlace y tu avance no se pierden">
+                    <i class="fas fa-right-from-bracket mr-1"></i>Cerrar sesión</a>
+            <?php endif; ?>
+        </div>
     </div>
 
     <!-- ── Datos del alta ── -->
@@ -284,10 +352,55 @@ function estadoDoc(?array $doc): string {
 <script src="<?= sivacAsset('js/funciones.js') ?>"></script>
 <script>
 $(function () {
-    // El token viaja en cada petición: es la única credencial del portal.
+    // El token viaja en cada petición y dice de quién es el expediente; la
+    // sesión (cookie propia, que el JS no puede leer) prueba que ya escribió la
+    // contraseña. El servidor exige las dos cosas.
     var TOKEN = <?= json_encode($token) ?>;
     var DOCS_OBLIG = <?= (int)$docsObligatorios ?>;
     var datosSucios = false;   // hay cambios tecleados sin guardar
+
+    /**
+     * Vuelve a pedir la contraseña SIN recargar la página. Pasa cuando la sesión
+     * vence por inactividad o cuando RRHH se la restablece con el portal abierto.
+     * Recargar sería lo fácil, pero se llevaría lo que el candidato tenga tecleado
+     * y sin guardar — el mismo error que costaba los datos antes del 27-jul.
+     */
+    function pedirClave(despues) {
+        Swal.fire({
+            title: 'Escribe otra vez tu contraseña',
+            html: '<p class="small text-muted mb-0">Tu sesión venció por inactividad. '
+                + 'No pierdes nada: lo que tienes escrito sigue en la página.</p>',
+            input: 'text',
+            inputPlaceholder: 'XXXX-XXXX',
+            inputAttributes: { maxlength: 12, autocapitalize: 'characters', autocorrect: 'off', spellcheck: 'false' },
+            showCancelButton: true, allowOutsideClick: false,
+            confirmButtonText: 'Entrar', cancelButtonText: 'Ahora no',
+            confirmButtonColor: messColor('accent'), background: messColor('card-bg'), color: messColor('text'),
+            preConfirm: function (v) {
+                return new Promise(function (resolve) {
+                    ajaxPost('acciones_portal.php', { accion: 'entrar', t: TOKEN, pass: v || '' }, function (err, res) {
+                        // Con showValidationMessage el cuadro se queda abierto para reintentar.
+                        if (!res || !res.success) Swal.showValidationMessage((res && res.message) || 'No se pudo entrar. Revisa tu conexión.');
+                        resolve(!!(res && res.success));
+                    });
+                });
+            }
+        }).then(function (r) { if (r.isConfirmed && typeof despues === 'function') despues(); });
+    }
+
+    /** Envía al portal y, si la sesión ya no vale, la reabre y REINTENTA lo mismo. */
+    function portalEnviar(enviar, cb) {
+        enviar(function (err, res) {
+            if (res && res.sesion === 0) { pedirClave(function () { portalEnviar(enviar, cb); }); return; }
+            cb(err, res);
+        });
+    }
+    function portalPost(data, cb) {
+        portalEnviar(function (done) { ajaxPost('acciones_portal.php', data, done); }, cb);
+    }
+    function portalUpload(fd, cb) {
+        portalEnviar(function (done) { ajaxUpload('acciones_portal.php', fd, done); }, cb);
+    }
 
     /**
      * Recalcula los contadores de las dos secciones y la barra de progreso.
@@ -321,7 +434,7 @@ $(function () {
         data.push({ name: 'accion', value: 'guardar_datos_fiscales' });
         data.push({ name: 't', value: TOKEN });
         var $btn = $(this).find('button[type=submit]').prop('disabled', true);
-        ajaxPost('acciones_portal.php', data, function (err, res) {
+        portalPost(data, function (err, res) {
             $btn.prop('disabled', false);
             if (res && res.success) {
                 datosSucios = false;
@@ -377,7 +490,7 @@ $(function () {
         fd.append('t', TOKEN);
         fd.append('id_tipo', idTipo);
         var $btn = $form.find('button').prop('disabled', true);
-        ajaxUpload('acciones_portal.php', fd, function (err, res) {
+        portalUpload(fd, function (err, res) {
             $btn.prop('disabled', false);
             if (res && res.success) {
                 pintarDoc(idTipo, res.documento);

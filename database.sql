@@ -344,9 +344,16 @@ CREATE TABLE IF NOT EXISTS accesos_consulta (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ----------------------------------------------------------------------------
--- Accesos por token del portal del candidato (Fase B).
+-- Accesos del portal del candidato (Fase B).
 -- Única superficie pública de SIVAC: el candidato entra por portal.php?t=<token>
 -- SIN pasar por loginMaster. Desactivar = poner activo=0 (invalida el token).
+--
+-- SON DOS FACTORES SEPARADOS A PROPÓSITO:
+--   · el ENLACE (token) → lo que el candidato recibe por WhatsApp o correo;
+--   · la CONTRASEÑA (pass_hash) → 8 caracteres que le dicta RRHH aparte.
+-- Detrás del portal están la CURP, el RFC y el NSS del candidato, y el enlace se
+-- reenvía, queda en el historial del navegador y en los logs del servidor: por sí
+-- solo dejó de ser suficiente (2026-08-14).
 --
 -- `token_hash` es lo que se compara al entrar (índice único). `token` guarda el
 -- mismo valor en claro para que RRHH pueda VOLVER A VER el enlace que ya le
@@ -354,16 +361,23 @@ CREATE TABLE IF NOT EXISTS accesos_consulta (
 -- invalida el que el candidato ya tenía. Es una decisión consciente (2026-08-12):
 -- quien pueda leer la BD ve los enlaces vigentes, que caducan a los 15 días y
 -- sólo abren el portal de ese candidato.
+--
+-- De la CONTRASEÑA, en cambio, SÓLO vive el hash: no se puede volver a mostrar y
+-- no se recupera, se RESTABLECE (enlace y avance del candidato intactos). Por eso
+-- quien lea esta tabla ve el enlace pero no puede entrar.
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS candidato_accesos (
     id           INT UNSIGNED NOT NULL AUTO_INCREMENT,
     id_candidato INT UNSIGNED NOT NULL,
     token_hash   CHAR(64) NOT NULL COMMENT 'hash SHA-256 del token; es lo que se compara al entrar',
     token        CHAR(64) NULL COMMENT 'el mismo token en claro, para poder repetir el enlace; NULL en los accesos anteriores al 2026-08-12',
+    pass_hash    VARCHAR(255) NULL COMMENT 'contraseña del portal (password_hash); NULL = enlace anterior al 2026-08-14, abre sin ella',
     fecha_expira DATETIME NOT NULL,
     activo       TINYINT(1) NOT NULL DEFAULT 1,
     usos         INT UNSIGNED NOT NULL DEFAULT 0,
     ultimo_uso   DATETIME NULL,
+    intentos     TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'intentos fallidos SEGUIDOS de contraseña; acertar los borra',
+    bloqueado_hasta DATETIME NULL COMMENT 'bloqueo temporal tras 5 fallos; se cuenta en la fila y no por IP',
     creado_por   INT UNSIGNED NOT NULL,
     fecha_creacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
