@@ -50,14 +50,19 @@ function messColor(token) {
     return (v || '').trim() || '#074480';
 }
 
-/** Toast (SweetAlert2, independiente de la versión de Bootstrap). */
+/** Toast (SweetAlert2, independiente de la versión de Bootstrap).
+ *  El mensaje es TEXTO PLANO: `title` de SweetAlert2 se pinta como HTML, y los
+ *  errores de SMTP traen la dirección entre picos ("... failed: <x@mess.com.mx>"),
+ *  que el navegador se comía como etiqueta desconocida. El toast acababa diciendo
+ *  "no se pudo enviar a:" sin decir a quién. Si algún día un toast necesita
+ *  formato, que reciba el HTML ya armado por una función aparte. */
 function mostrarToast(mensaje, tipo) {
     var iconMap = { success: 'success', danger: 'error', error: 'error', warning: 'warning', info: 'info' };
     Swal.fire({
         toast: true,
         position: 'bottom-end',
         icon: iconMap[tipo] || 'info',
-        title: mensaje,
+        title: escHtml(mensaje),
         showConfirmButton: false,
         timer: 3500,
         timerProgressBar: true,
@@ -71,12 +76,16 @@ function mostrarAlerta(tipo, mensaje) {
     mostrarToast(mensaje, tipo);
 }
 
-/** Confirmación (SweetAlert2). callback() se ejecuta si el usuario confirma. */
+/** Confirmación (SweetAlert2). callback() se ejecuta si el usuario confirma.
+ *  `mensaje` ADMITE HTML: varias confirmaciones resaltan con <strong> el dato que
+ *  decide la respuesta (a qué áreas se avisa, qué NO se toca). Iba como `text`,
+ *  que SweetAlert2 pinta con textContent, y las etiquetas salían escritas en
+ *  pantalla. Todo lo que venga de datos se escapa con escHtml() en el llamador. */
 function confirmarAccion(mensaje, callback, opciones) {
     opciones = opciones || {};
     Swal.fire({
         title: opciones.titulo || '¿Estás seguro?',
-        text: mensaje,
+        html: mensaje,
         icon: opciones.icon || 'warning',
         showCancelButton: true,
         confirmButtonColor: messColor('accent'),

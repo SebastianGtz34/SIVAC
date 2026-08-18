@@ -252,7 +252,9 @@ $(function () {
             // único que queda es generar. Se pregunta sólo cuando hay algo que romper.
             if (!parseInt(res.vigente, 10)) { generarEnlaceNuevo(id); return; }
             if (parseInt(res.sin_token, 10)) {
-                confirmarAccion(res.message + ' Generar uno nuevo invalidará el que tenga el candidato.',
+                // El mensaje viene del servidor y es texto, no formato: se escapa
+                // porque confirmarAccion pinta HTML.
+                confirmarAccion(escHtml(res.message) + ' Generar uno nuevo invalidará el que tenga el candidato.',
                     function () { generarEnlaceNuevo(id); },
                     { titulo: 'Generar un enlace nuevo', confirmar: 'Sí, generar', icon: 'warning' });
                 return;
