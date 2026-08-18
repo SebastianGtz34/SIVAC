@@ -11,7 +11,7 @@
  */
 require_once __DIR__ . '/includes/assets.php';
 if (!isset($noEmpSesion)) { $noEmpSesion = requiereSesionPage(); }
-$pageTitle  = $pageTitle  ?? 'SIVAC';
+$pageTitle  = $pageTitle  ?? 'NEST';
 $menuActivo = $menuActivo ?? '';
 $datosUsuario = obtenerDatosEmpleado($conn, $noEmpSesion);
 $nombreUsuario = $datosUsuario['nombre'] ?? ('Empleado #' . $noEmpSesion);
@@ -21,7 +21,8 @@ $nombreUsuario = $datosUsuario['nombre'] ?? ('Empleado #' . $noEmpSesion);
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-    <title><?= htmlspecialchars($pageTitle) ?> · SIVAC</title>
+    <title><?= htmlspecialchars($pageTitle) ?> · NEST</title>
+    <link rel="icon" type="image/png" href="<?= sivacAsset('img/NEST/nest-iso.png') ?>">
 
     <!-- Anti-FOUC: aplica el tema guardado antes de pintar -->
     <script>
@@ -48,7 +49,11 @@ $nombreUsuario = $datosUsuario['nombre'] ?? ('Empleado #' . $noEmpSesion);
                 <button id="sidebarToggleTop" class="btn btn-link d-md-none rounded-circle mr-3">
                     <i class="fa fa-bars"></i>
                 </button>
-                <span class="navbar-brand d-md-none text-primary font-weight-bold">SIVAC</span>
+                <!-- Marca de la topbar: sólo se ve en móvil, donde el sidebar está
+                     oculto. Fondo claro → logo a color. -->
+                <a class="navbar-brand d-md-none" href="inicio.php">
+                    <img src="<?= sivacAsset('img/NEST/nest-logo.png') ?>" alt="NEST" class="topbar-brand-img">
+                </a>
 
                 <ul class="navbar-nav ml-auto align-items-center">
                     <!-- Campana de notificaciones -->

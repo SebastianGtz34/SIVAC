@@ -75,6 +75,97 @@ function avisoFechaDocs(?string $limite, ?string $ingreso): string {
          . ', DESPUÉS del ingreso (' . date('d/m/Y', $ti) . ').';
 }
 
+/**
+ * Ficha del colaborador para los correos de alta, resuelta a NOMBRES: quien la
+ * recibe está fuera del sistema y no puede traducir un id de departamento, de
+ * nave ni un número de empleado. La comparten completar_alta y el reenvío, para
+ * que reenviar reproduzca exactamente el mismo correo y no uno parecido.
+ */
+function fichaAlta(mysqli $conn, array $c, string $fechaIngreso, int $viaticos, int $celular, int $equipo): array {
+    $sol = obtenerDatosEmpleado($conn, (int)$c['no_empleado_solicitante']);
+    return [
+        'nombre'          => $c['nombre'],
+        'fecha_ingreso'   => date('d/m/Y', strtotime($fechaIngreso)),
+        'puesto'          => $c['puesto'],
+        'area'            => catalogoDepartamentos($conn)[(int)($c['departamento'] ?? 0)] ?? '',
+        'sede'            => catalogoNaves($conn)[(int)($c['nave'] ?? 0)] ?? '',
+        'jefe'            => $sol['nombre'] ?? ('#' . (int)$c['no_empleado_solicitante']),
+        'correo_personal' => $c['correo'],
+        'cel_personal'    => $c['telefono'],
+        'req_viaticos'    => $viaticos,
+        'req_celular'     => $celular,
+        'req_equipo'      => $equipo,
+        'correo_mess'     => '',   // lo asigna Sistemas; SIVAC no lo conoce
+        'herramientas_notificadas' => (int)($c['herramientas_notificadas'] ?? 0),
+    ];
+}
+
+/**
+ * Manda un correo por área y dice QUÉ PASÓ con cada uno.
+ *
+ * Antes se daba por enviada toda área que tuviera destinatario cargado, sin
+ * mirar el resultado del SMTP: el 2026-08-18 se descubrió que en producción
+ * faltaba `config_correo.php` y las cinco áreas de un alta real nunca recibieron
+ * nada, mientras RRHH había visto "Avisos enviados a: …" en verde. El motivo ya
+ * se guardaba en `notificaciones.correo_error`; sólo faltaba subirlo a la UI.
+ *
+ * Devuelve ['enviadas' => ['Nóminas', …], 'fallidas' => ['Sistemas' => 'motivo', …]].
+ */
+function mandarAvisosAlta(mysqli $conn, array $c, array $ficha, array $areas): array {
+    $enviadas = [];
+    $fallidas = [];
+    foreach (sivacAvisosAlta($conn, $ficha, $areas) as $aviso) {
+        $envio = null;
+        notificarEvento($conn, 'alta_aviso_' . $aviso['clave'], [
+            'id_candidato' => (int)$c['id'], 'id_vacante' => (int)$c['id_vacante'],
+            'titulo'  => $aviso['titulo'],
+            'mensaje' => $c['nombre'] . ' · ingreso ' . $ficha['fecha_ingreso'],
+            'correos' => $aviso['correos'],
+            'correo_asunto' => $aviso['asunto'],
+            'correo_titulo' => $aviso['titulo'],
+            'correo_html'   => $aviso['html'],
+        ], $envio);
+        if (!empty($envio['ok'])) $enviadas[] = $aviso['area'];
+        else $fallidas[$aviso['area']] = (string)($envio['error'] ?? 'No se pudo enviar.');
+    }
+    return ['enviadas' => $enviadas, 'fallidas' => $fallidas];
+}
+
+/**
+ * Resumen para RRHH de cómo le fue a los avisos. Los que fallaron van CON su
+ * motivo: "Falta config_correo.php en el servidor" es accionable, "no se pudo
+ * enviar" manda a adivinar.
+ */
+function mensajeAvisosAlta(array $res, array $sinCorreo): string {
+    $msg = '';
+    if ($res['enviadas']) {
+        $msg .= ' Avisos enviados a: ' . implode(', ', $res['enviadas']) . '.';
+    }
+    if ($res['fallidas']) {
+        // Agrupadas POR MOTIVO: cuando falta config_correo.php fallan las cinco
+        // por lo mismo, y repetir el motivo cinco veces hace ilegible el toast.
+        $porMotivo = [];
+        foreach ($res['fallidas'] as $area => $err) $porMotivo[$err][] = $area;
+        $det = [];
+        foreach ($porMotivo as $err => $areas) $det[] = implode(', ', $areas) . ' → ' . $err;
+        $msg .= ' ⚠️ NO se pudo enviar a: ' . implode(' | ', $det);
+    }
+    if ($sinCorreo) {
+        $msg .= ' ⚠️ Sin correo configurado (no se avisó): ' . implode(', ', $sinCorreo)
+              . '. Cárgalos en Configuración → Destinatarios.';
+    }
+    if (!$res['enviadas'] && !$res['fallidas'] && !$sinCorreo) {
+        $msg .= ' No se envió ningún aviso.';
+    }
+    return $msg;
+}
+
+/** Áreas que llegan del cliente, filtradas contra el catálogo. */
+function areasDelPost($valor): array {
+    if (!is_array($valor)) $valor = array_filter(explode(',', (string)$valor));
+    return array_values(array_intersect($valor, array_keys(sivacAreasAlta())));
+}
+
 switch ($accion) {
 
     case 'listar': {
@@ -298,11 +389,16 @@ switch ($accion) {
         if ($c['estatus'] !== 'documentacion') responder(false, 'El candidato no está en documentación.');
 
         if ($modo === 'nuevo') {
-            $token = sivacGenerarAcceso($conn, $id, $noEmp);
+            // sivacGenerarAcceso() devuelve ['token','pass','expira']: son DOS
+            // secretos, y ésta es la única vez que la contraseña se puede leer
+            // (de ella sólo se guarda el hash). Si no se devuelve aquí, RRHH se
+            // queda con un enlace que nadie puede abrir.
+            $acc = sivacGenerarAcceso($conn, $id, $noEmp);
             responder(true, 'Enlace nuevo generado (vigencia 15 días). El anterior quedó invalidado.', [
-                'url'    => sivacUrlPortal($token),
+                'url'    => sivacUrlPortal($acc['token']),
+                'pass'   => sivacPortalPassBonita($acc['pass']),
                 'nuevo'  => 1,
-                'expira' => date('d/m/Y', strtotime('+15 days')),
+                'expira' => date('d/m/Y', strtotime($acc['expira'])),
             ]);
         }
 
@@ -316,10 +412,47 @@ switch ($accion) {
                 'expira'  => date('d/m/Y', strtotime($acceso['fecha_expira'])),
             ]);
         }
+        // `tiene_pass` para que la UI no mienta: de la contraseña sólo vive el
+        // hash, así que al repetir el enlace NO se puede volver a mostrar. Pero
+        // los accesos anteriores al 2026-08-14 abren SIN contraseña, y decirle a
+        // RRHH que "no se puede mostrar" una que no existe lo manda a buscarla.
         responder(true, 'Es el mismo enlace que ya tiene el candidato.', [
-            'vigente' => 1,
-            'url'     => sivacUrlPortal($acceso['token']),
-            'expira'  => date('d/m/Y', strtotime($acceso['fecha_expira'])),
+            'vigente'    => 1,
+            'url'        => sivacUrlPortal($acceso['token']),
+            'expira'     => date('d/m/Y', strtotime($acceso['fecha_expira'])),
+            'tiene_pass' => sivacPortalRequiereClave($acceso) ? 1 : 0,
+        ]);
+    }
+
+    /**
+     * Contraseña NUEVA para el enlace que el candidato ya tiene.
+     *
+     * Se RESTABLECE, no se recupera: de la contraseña sólo vive el hash. Cambia
+     * la clave sin tocar el enlace ni lo que el candidato lleve entregado —
+     * regenerar el enlace, que era la única salida que tenía RRHH, lo dejaba
+     * tirado a media documentación. La puerta del portal ya le promete al
+     * candidato «pídele a Recursos Humanos que te la restablezca»: esto es lo
+     * que hace que esa frase sea cierta.
+     *
+     * Sirve además para ponerle contraseña a un enlace anterior al 2026-08-14,
+     * que hoy abre sin ella.
+     */
+    case 'restablecer_pass': {
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id <= 0) responder(false, 'Id inválido.');
+        $c = ctxCandidato($conn, $id);
+        if (!$c) responder(false, 'Candidato no encontrado.');
+        if ($c['estatus'] !== 'documentacion') responder(false, 'El candidato no está en documentación.');
+
+        $acceso = sivacAccesoVigente($conn, $id);
+        if (!$acceso) responder(false, 'Este candidato no tiene un enlace vigente. Genera uno nuevo.');
+
+        // Cambiar el hash invalida solo las sesiones abiertas: la sesión guarda
+        // una huella de él (sivacPortalHuella), así que no hay que ir a buscarlas.
+        $pass = sivacPortalAsignarPass($conn, (int)$acceso['id']);
+        responder(true, 'Contraseña restablecida. El enlace es el mismo de siempre.', [
+            'pass'   => sivacPortalPassBonita($pass),
+            'expira' => date('d/m/Y', strtotime($acceso['fecha_expira'])),
         ]);
     }
 
@@ -376,7 +509,7 @@ switch ($accion) {
                     'id_candidato' => (int)$doc['id_candidato'], 'id_vacante' => (int)$c['id_vacante'],
                     'titulo' => 'Documento rechazado — ' . $doc['doc_tipo'],
                     'correos' => [$c['correo']],
-                    'correo_asunto' => 'SIVAC — Documento rechazado (' . $c['folio'] . ')',
+                    'correo_asunto' => 'NEST — Documento rechazado (' . $c['folio'] . ')',
                     'correo_titulo' => 'Documento rechazado',
                     'correo_html' => 'Hola ' . htmlspecialchars($c['nombre']) . ',<br><br>Tu documento <strong>'
                         . htmlspecialchars($doc['doc_tipo']) . '</strong> fue <strong>rechazado</strong>.<br><br>'
@@ -403,12 +536,17 @@ switch ($accion) {
         // Las dos fechas del trámite viajan aquí para que el modal las muestre
         // juntas: se capturan en campos distintos y hasta ahora no había dónde
         // ver que el límite de documentos había quedado después del ingreso.
+        // Los req_* viajan para el REENVÍO de avisos: ahí no se vuelven a
+        // preguntar (se decidieron al completar el alta), sólo se muestran.
         $stmt = $conn->prepare(
-            "SELECT fecha_ingreso, fecha_limite_documentos, prorrogas FROM contrataciones WHERE id_candidato = ? LIMIT 1"
+            "SELECT fecha_ingreso, fecha_limite_documentos, prorrogas,
+                    req_viaticos, req_celular, req_equipo
+               FROM contrataciones WHERE id_candidato = ? LIMIT 1"
         );
         $stmt->bind_param('i', $id); $stmt->execute();
         $ct = $stmt->get_result()->fetch_assoc(); $stmt->close();
-        $ct = $ct ?: ['fecha_ingreso' => null, 'fecha_limite_documentos' => null, 'prorrogas' => 0];
+        $ct = $ct ?: ['fecha_ingreso' => null, 'fecha_limite_documentos' => null, 'prorrogas' => 0,
+                      'req_viaticos' => 0, 'req_celular' => 0, 'req_equipo' => 0];
         $ct['aviso'] = avisoFechaDocs($ct['fecha_limite_documentos'], $ct['fecha_ingreso']);
 
         responder(true, '', [
@@ -532,9 +670,7 @@ switch ($accion) {
         $viaticos = !empty($_POST['req_viaticos']) ? 1 : 0;
         $celular  = !empty($_POST['req_celular'])  ? 1 : 0;
         $equipo   = !empty($_POST['req_equipo'])   ? 1 : 0;
-        $areas    = $_POST['areas'] ?? [];
-        if (!is_array($areas)) $areas = array_filter(explode(',', (string)$areas));
-        $areas    = array_values(array_intersect($areas, array_keys(sivacAreasAlta())));
+        $areas    = areasDelPost($_POST['areas'] ?? []);
 
         // Requisitos: fecha de ingreso + reglamento + documentos obligatorios completos.
         $stmt = $conn->prepare("SELECT fecha_ingreso, reglamento_enviado FROM contrataciones WHERE id_candidato = ? LIMIT 1");
@@ -622,50 +758,69 @@ switch ($accion) {
             'url' => 'contrataciones.php',
         ]);
 
-        // Un correo POR ÁREA, cada uno con los datos que esa área pide. La ficha
-        // se resuelve a nombres (departamento, nave y jefe son ids) porque quien
-        // lo recibe no tiene forma de traducir un catálogo.
-        $sol = obtenerDatosEmpleado($conn, (int)$c['no_empleado_solicitante']);
-        $ficha = [
-            'nombre'          => $c['nombre'],
-            'fecha_ingreso'   => date('d/m/Y', strtotime($ct['fecha_ingreso'])),
-            'puesto'          => $c['puesto'],
-            'area'            => catalogoDepartamentos($conn)[(int)($c['departamento'] ?? 0)] ?? '',
-            'sede'            => catalogoNaves($conn)[(int)($c['nave'] ?? 0)] ?? '',
-            'jefe'            => $sol['nombre'] ?? ('#' . (int)$c['no_empleado_solicitante']),
-            'correo_personal' => $c['correo'],
-            'cel_personal'    => $c['telefono'],
-            'req_viaticos'    => $viaticos,
-            'req_celular'     => $celular,
-            'req_equipo'      => $equipo,
-            'correo_mess'     => '',   // lo asigna Sistemas; SIVAC no lo conoce
-            'herramientas_notificadas' => (int)($c['herramientas_notificadas'] ?? 0),
-        ];
-
-        $enviadas = [];
-        foreach (sivacAvisosAlta($conn, $ficha, $areas) as $aviso) {
-            notificarEvento($conn, 'alta_aviso_' . $aviso['clave'], [
-                'id_candidato' => $id, 'id_vacante' => (int)$c['id_vacante'],
-                'titulo'  => $aviso['titulo'],
-                'mensaje' => $c['nombre'] . ' · ingreso ' . $ficha['fecha_ingreso'],
-                'correos' => $aviso['correos'],
-                'correo_asunto' => $aviso['asunto'],
-                'correo_titulo' => $aviso['titulo'],
-                'correo_html'   => $aviso['html'],
-            ]);
-            $enviadas[] = $aviso['area'];
-        }
+        // Un correo POR ÁREA, cada uno con los datos que esa área pide.
+        $ficha = fichaAlta($conn, $c, $ct['fecha_ingreso'], $viaticos, $celular, $equipo);
+        $res   = mandarAvisosAlta($conn, $c, $ficha, $areas);
 
         // Un área marcada sin correo cargado NO detiene el alta, pero RRHH tiene
-        // que enterarse: si no, cree que Nóminas ya recibió su aviso.
+        // que enterarse: si no, cree que Nóminas ya recibió su aviso. Lo mismo
+        // con las que fallaron: el alta quedó hecha (success = true) pero el
+        // toast sale en ámbar para que nadie la dé por avisada.
         $sinCorreo = sivacAreasAltaSinCorreo($conn, $areas);
-        $msg = 'Alta completada.';
-        $msg .= $enviadas ? ' Avisos enviados a: ' . implode(', ', $enviadas) . '.' : ' No se envió ningún aviso.';
-        if ($sinCorreo) {
-            $msg .= ' ⚠️ Sin correo configurado (no se avisó): ' . implode(', ', $sinCorreo)
-                . '. Cárgalos en Configuración → Destinatarios.';
+        $msg = 'Alta completada.' . mensajeAvisosAlta($res, $sinCorreo);
+        responder(true, $msg, [
+            'aviso'    => ($res['fallidas'] || $sinCorreo) ? 1 : 0,
+            'fallidas' => array_keys($res['fallidas']),
+        ]);
+    }
+
+    /**
+     * Reenvía los avisos por área de un alta YA completada.
+     *
+     * Existe porque un envío fallido no se podía reintentar: `completar_alta`
+     * exige estatus 'documentacion' y el candidato ya quedó en 'contratado', así
+     * que los correos se perdían para siempre y las áreas nunca se enteraban del
+     * ingreso. Pasó en producción el 2026-08-18 con las cinco áreas de un alta
+     * real (faltaba config_correo.php en el servidor).
+     *
+     * Los requerimientos NO se vuelven a preguntar: se decidieron al completar el
+     * alta y están guardados en `contrataciones`. Reenviar tiene que reproducir
+     * EL MISMO correo, no uno nuevo con otros datos.
+     */
+    case 'reenviar_avisos_alta': {
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id <= 0) responder(false, 'Id inválido.');
+        $c = ctxCandidato($conn, $id);
+        if (!$c) responder(false, 'Candidato no encontrado.');
+        if ($c['estatus'] !== 'contratado') {
+            responder(false, 'Sólo se reenvían los avisos de un alta ya completada.');
         }
-        responder(true, $msg);
+
+        $areas = areasDelPost($_POST['areas'] ?? []);
+        if (!$areas) responder(false, 'Marca al menos un área a la que reenviar.');
+
+        $stmt = $conn->prepare(
+            "SELECT fecha_ingreso, req_viaticos, req_celular, req_equipo
+               FROM contrataciones WHERE id_candidato = ? LIMIT 1"
+        );
+        $stmt->bind_param('i', $id); $stmt->execute();
+        $ct = $stmt->get_result()->fetch_assoc(); $stmt->close();
+        if (!$ct || !$ct['fecha_ingreso']) {
+            responder(false, 'La contratación no tiene fecha de ingreso registrada.');
+        }
+
+        $ficha = fichaAlta($conn, $c, $ct['fecha_ingreso'],
+            (int)$ct['req_viaticos'], (int)$ct['req_celular'], (int)$ct['req_equipo']);
+        $res = mandarAvisosAlta($conn, $c, $ficha, $areas);
+        $sinCorreo = sivacAreasAltaSinCorreo($conn, $areas);
+
+        // A diferencia del alta, aquí el envío ES la operación: si no salió
+        // ninguno, esto fracasó y el toast tiene que ser rojo.
+        $msg = 'Reenvío de avisos.' . mensajeAvisosAlta($res, $sinCorreo);
+        responder(!empty($res['enviadas']), $msg, [
+            'aviso'    => ($res['fallidas'] || $sinCorreo) ? 1 : 0,
+            'fallidas' => array_keys($res['fallidas']),
+        ]);
     }
 
     default:

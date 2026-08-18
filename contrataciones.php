@@ -121,8 +121,16 @@ include 'encabezado.php';
             <i class="fas fa-info-circle mr-1"></i>Se envía un correo <strong>por área</strong>,
             cada uno con los datos que esa área pide. Desmarca las que no apliquen.
           </p>
+          <!-- En modo consulta (ya contratado) este bloque sigue visible para poder
+               REENVIAR: un envío fallido no se podía reintentar y las áreas se
+               quedaban sin enterarse del ingreso. Los requerimientos se pintan
+               deshabilitados porque ya se decidieron; el reenvío los lee de la BD. -->
+          <div id="avisoReenvio" class="alert alert-info py-2 small d-none">
+            <i class="fas fa-redo mr-1"></i>El alta ya se completó. Aquí puedes
+            <strong>volver a mandar</strong> los avisos a las áreas que no los recibieron.
+          </div>
           <form id="formAvisosAlta">
-            <div class="form-group mb-2">
+            <div class="form-group mb-2" id="bloqueRequerimientos">
               <label class="small mb-1 d-block">Requerimientos</label>
               <div class="form-check form-check-inline">
                 <input class="form-check-input" type="checkbox" id="alta_viaticos">
@@ -144,6 +152,7 @@ include 'encabezado.php';
           </form>
 
           <button class="btn btn-success btn-block mt-3" id="btnCompletarAlta"><i class="fas fa-user-check mr-1"></i>Completar alta</button>
+          <button class="btn btn-outline-primary btn-block mt-3 d-none" id="btnReenviarAvisos"><i class="fas fa-redo mr-1"></i>Reenviar avisos a las áreas</button>
         </div>
         <div class="col-md-6">
           <h6>Documentos del candidato</h6>

@@ -57,6 +57,20 @@ ALTER TABLE candidato_accesos
 -- FALLA en producción (error 1364) aunque en local funcione.
 ALTER TABLE propuestas DROP COLUMN sueldo_propuesto;
 ALTER TABLE contrataciones DROP COLUMN sueldo;   -- opcional: es NULL-able y no rompe nada
+
+-- Retro 5 (14-ago): contraseña del portal del candidato. SIN ESTO NO SE PUEDE
+-- GENERAR NINGÚN ENLACE: el INSERT de sivacGenerarAcceso() escribe pass_hash y
+-- truena con "Unknown column". Faltaba también en local hasta el 18-ago.
+-- Las filas que ya existan quedan con pass_hash NULL, o sea abriendo sin
+-- contraseña: es el comportamiento diseñado para no dejar tirado a nadie a
+-- media documentación.
+ALTER TABLE candidato_accesos
+  ADD COLUMN pass_hash VARCHAR(255) NULL
+    COMMENT 'contraseña del portal (password_hash); NULL = enlace anterior al 2026-08-14' AFTER token,
+  ADD COLUMN intentos TINYINT UNSIGNED NOT NULL DEFAULT 0
+    COMMENT 'intentos fallidos SEGUIDOS de contraseña' AFTER ultimo_uso,
+  ADD COLUMN bloqueado_hasta DATETIME NULL
+    COMMENT 'bloqueo temporal tras 5 fallos' AFTER intentos;
 ```
 
 Verificar después con:
@@ -64,15 +78,28 @@ Verificar después con:
 ```sql
 SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS
  WHERE TABLE_SCHEMA = 'mess_sivac'
-   AND (COLUMN_NAME LIKE '%sueldo%' OR COLUMN_NAME = 'token');
+   AND (COLUMN_NAME LIKE '%sueldo%'
+        OR COLUMN_NAME IN ('token','pass_hash','intentos','bloqueado_hasta'));
 ```
-Debe devolver **sólo** `candidato_accesos.token`.
+Debe devolver **cuatro** filas, todas de `candidato_accesos` (`token`, `pass_hash`,
+`intentos`, `bloqueado_hasta`) y **ninguna** de sueldo.
 
 ## ⚠️ Lo que NO viaja con el proyecto (hay que crearlo en el destino)
 - **`conn.php`** — está *gitignored*. Copiar de `conn.example.php` y poner las
   credenciales MySQL del equipo destino. **Sin esto, nada conecta.**
 - **`config_correo.php`** — *gitignored*. Copiar de `config_correo.example.php`
-  (SMTP). Sin esto solo se desactiva el envío de correo; el sistema sigue.
+  (SMTP) **en la raíz de SIVAC**, junto a `acciones_cierre.php` — no dentro de
+  `includes/`, y con el nombre exacto en minúsculas (Linux distingue).
+  El sistema sigue funcionando sin él, pero **ningún correo sale**: propuestas,
+  reglamento y los cinco avisos de alta a las áreas se registran en
+  `notificaciones` con `correo_error = 'Falta config_correo.php en el servidor.'`
+  y nadie los recibe. Pasó en producción el **2026-08-18**: se completó un alta
+  real y las cinco áreas nunca se enteraron. Al terminar cualquier
+  actualización, comprobar:
+  ```sql
+  SELECT correo_enviado, correo_error, fecha_creacion
+    FROM notificaciones ORDER BY id DESC LIMIT 5;
+  ```
 - **`uploads/cv/` y `uploads/documentos/`** — los archivos subidos no están en git.
   Para el demo: colocar tu PDF como **`uploads/cv/cv_demo.pdf`** (y opcional
   `uploads/documentos/doc_demo.pdf`).

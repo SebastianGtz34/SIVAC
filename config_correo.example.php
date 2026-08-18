@@ -16,5 +16,5 @@ return [
     'usuario'     => 'cuenta@gmail.com',
     'password'    => 'app-password-de-16-letras',
     'from_correo' => 'cuenta@gmail.com',
-    'from_nombre' => 'SIVAC — Vacantes y Contratación',
+    'from_nombre' => 'NEST — Vacantes y Contratación',
 ];

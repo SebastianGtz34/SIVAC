@@ -108,8 +108,14 @@ if (!function_exists('sivacGenerarAcceso')) {
     function sivacResolverAcceso(mysqli $conn, string $token): ?array {
         if (!preg_match('/^[a-f0-9]{64}$/', $token)) return null;
         $hash = hash('sha256', $token);
+        // `vigente` lo decide MySQL y no PHP: `fecha_expira` la escribió MySQL, y
+        // los dos relojes NO tienen por qué coincidir (en el WAMP local MySQL va
+        // en hora local y PHP en UTC, seis horas de diferencia). Comparando en
+        // PHP el enlace caducaba seis horas antes de tiempo. Ver el mismo motivo
+        // en sivacPortalBloqueoRestante().
         $stmt = $conn->prepare(
-            "SELECT id, id_candidato, fecha_expira, activo, pass_hash, intentos, bloqueado_hasta
+            "SELECT id, id_candidato, fecha_expira, activo, pass_hash, intentos, bloqueado_hasta,
+                    (fecha_expira > NOW()) AS vigente
              FROM candidato_accesos WHERE token_hash = ? LIMIT 1"
         );
         $stmt->bind_param('s', $hash);
@@ -118,7 +124,7 @@ if (!function_exists('sivacGenerarAcceso')) {
         $stmt->close();
         if (!$row) return null;
         if ((int)$row['activo'] !== 1) return null;
-        if (strtotime($row['fecha_expira']) < time()) return null;
+        if ((int)$row['vigente'] !== 1) return null;
 
         $upd = $conn->prepare("UPDATE candidato_accesos SET usos = usos + 1, ultimo_uso = NOW() WHERE id = ?");
         $upd->bind_param('i', $row['id']);
@@ -205,11 +211,29 @@ if (!function_exists('sivacGenerarAcceso')) {
         return $pass;
     }
 
-    /** Segundos que faltan para que se levante el bloqueo por intentos (0 si no hay). */
-    function sivacPortalBloqueoRestante(array $acceso): int {
-        $hasta = $acceso['bloqueado_hasta'] ?? null;
-        if (!$hasta) return 0;
-        return max(0, strtotime($hasta) - time());
+    /**
+     * Segundos que faltan para que se levante el bloqueo por intentos (0 si no hay).
+     *
+     * La cuenta la hace MySQL, no PHP. `bloqueado_hasta` se escribe con
+     * `DATE_ADD(NOW(), …)` —reloj de MySQL— y compararlo con `time()` de PHP da
+     * basura en cuanto los dos relojes no coinciden: en el WAMP local MySQL va en
+     * hora local y PHP en UTC, seis horas de diferencia, y el resultado salía
+     * SIEMPRE negativo. Es decir, el bloqueo de 5 intentos no bloqueaba nada.
+     * Se relee de la fila (y no del arreglo que traiga el llamador) para que no
+     * dependa de qué SELECT lo haya construido: aquí fallar significa dejar
+     * pasar a quien está tanteando la contraseña.
+     */
+    function sivacPortalBloqueoRestante(mysqli $conn, int $idAcceso): int {
+        $stmt = $conn->prepare(
+            "SELECT GREATEST(0, COALESCE(TIMESTAMPDIFF(SECOND, NOW(), bloqueado_hasta), 0)) AS seg
+             FROM candidato_accesos WHERE id = ? LIMIT 1"
+        );
+        if (!$stmt) return 0;
+        $stmt->bind_param('i', $idAcceso);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        return (int)($row['seg'] ?? 0);
     }
 
     /**
@@ -221,7 +245,7 @@ if (!function_exists('sivacGenerarAcceso')) {
      * 5 seguidos se bloquea el acceso un cuarto de hora; acertar los borra.
      */
     function sivacPortalEntrar(mysqli $conn, array $acceso, string $pass): array {
-        $espera = sivacPortalBloqueoRestante($acceso);
+        $espera = sivacPortalBloqueoRestante($conn, (int)$acceso['id']);
         if ($espera > 0) {
             return ['ok' => false, 'espera' => $espera, 'mensaje' =>
                 'Demasiados intentos fallidos. Vuelve a intentarlo en ' . max(1, (int)ceil($espera / 60)) . ' minuto(s).'];

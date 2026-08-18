@@ -11,7 +11,7 @@
         <?php if (empty($embed)): ?>
         <footer class="sticky-footer bg-white">
             <div class="container my-auto"><div class="copyright text-center my-auto">
-                <span>SIVAC — MESS · <?= date('Y') ?></span>
+                <span>NEST — MESS · <?= date('Y') ?></span>
             </div></div>
         </footer>
         <?php endif; ?>
