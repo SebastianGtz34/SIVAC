@@ -2,10 +2,15 @@
 /**
  * acciones_portal.php — Acciones del PORTAL DEL CANDIDATO (JSON).
  *
- * ⚠️ Superficie PÚBLICA. NO incluye auth.php ni ningún gate de RRHH. La única
- * credencial es el token del enlace: se resuelve a un id_candidato en el SERVIDOR
- * y TODAS las consultas usan ESE id. El cliente NUNCA manda id_candidato; aunque
- * lo mande, se ignora. Así un candidato jamás puede tocar el expediente de otro.
+ * ⚠️ Superficie PÚBLICA. NO incluye auth.php ni ningún gate de RRHH.
+ *
+ * Son DOS credenciales, las mismas que exige portal.php:
+ *   1. el TOKEN del enlace, que se resuelve a un id_candidato en el SERVIDOR —
+ *      el cliente NUNCA manda id_candidato y, aunque lo mande, se ignora, así
+ *      que un candidato jamás puede tocar el expediente de otro; y
+ *   2. la SESIÓN del navegador, que prueba que ya acertó la contraseña.
+ * Exigir sólo la primera dejaba los datos fiscales al alcance de cualquiera que
+ * tuviera el enlace (ver el bloque del segundo factor, más abajo).
  */
 header('Content-Type: application/json; charset=utf-8');
 require_once 'conn.php';
@@ -80,6 +85,31 @@ function avisarRrhh(mysqli $conn, array $cand, int $idCandidato, string $evento,
 }
 
 $accion = $_POST['accion'] ?? $_GET['accion'] ?? '';
+
+// ── Segundo factor: la CONTRASEÑA ────────────────────────────────────────────
+// El token dice de quién es el expediente; la contraseña prueba que es él. Hasta
+// aquí sólo se comprobó el token, y con eso NO basta: detrás de estas acciones
+// están la CURP, el RFC y el NSS del candidato, y el enlace viaja por WhatsApp,
+// se reenvía y queda en historiales y logs. Sin este bloque la contraseña sólo
+// protegía la página HTML, no los datos.
+
+// 'entrar' es la ÚNICA acción que se atiende sin sesión: es la que la abre. Los
+// intentos fallidos se cuentan en la fila del acceso (5 → 15 min de bloqueo),
+// así que no hace falta limitar nada aquí.
+if ($accion === 'entrar') {
+    $r = sivacPortalEntrar($conn, $acceso, (string)($_POST['pass'] ?? ''));
+    responder($r['ok'], $r['mensaje'], ['espera' => (int)$r['espera']]);
+}
+
+// El resto exige sesión de navegador. Los accesos SIN contraseña (pass_hash
+// NULL: los anteriores al 2026-08-14) siguen operando con sólo el token, a
+// propósito — no se deja tirado a nadie a media documentación.
+// `sesion => 0` es el contrato que espera el JS de portal.php: vuelve a pedir la
+// clave con SweetAlert y REINTENTA lo mismo, sin recargar y sin perder lo que el
+// candidato tenga tecleado.
+if (sivacPortalRequiereClave($acceso) && !sivacPortalSesionValida($acceso)) {
+    responder(false, 'Tu sesión venció. Escribe otra vez tu contraseña.', ['sesion' => 0]);
+}
 
 switch ($accion) {
 

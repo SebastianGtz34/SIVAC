@@ -1,4 +1,16 @@
-# SIVAC — Sistema de Vacantes y Contratación (MESS)
+# NEST — Núcleo de Evaluación y Selección de Talento (MESS)
+
+> **Nota de nombre (2026-08-18).** El sistema se llamaba **SIVAC** y ahora se
+> llama **NEST**. El cambio es de **marca**: lo que ve el usuario (pantallas,
+> correos, logos, la tarjeta de loginMaster). Por dentro **no** cambió nada que
+> pudiera romper producción y siguen diciendo `sivac`:
+> la carpeta y la URL (`/SIVAC/`, y con ella los enlaces del portal que los
+> candidatos ya tienen), la base `mess_sivac` (la leen también `gestionPersonal`,
+> `loginMaster` y `planeacion`), la clave `sistema = 'sivac'` de
+> `notificacion_historial`, la cookie `noEmpleadoSVC`, la sesión `SIVACPORTAL` y
+> los identificadores del código (`sivacXxx()`, `SIVAC_*`).
+> Renombrar eso es un trabajo aparte, con migración de datos y cambios
+> coordinados en los otros tres proyectos.
 
 Subsistema del portal MESS/loginMaster para controlar el proceso completo de
 vacantes y contratación: requisición (la levanta RRHH o el jefe, y en ese caso

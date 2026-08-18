@@ -42,7 +42,10 @@ if (!function_exists('sivacConfigCorreo')) {
      * mensaje tiene que leerse completo sin verlo (de ahí el alt y el título).
      */
     function sivacPlantillaCorreo(string $titulo, string $cuerpoHtml): string {
-        $logo = 'https://messbook.com.mx/mess_logooficial.jpg';
+        // Lockup Grupo MESS + NEST. Va por URL ABSOLUTA porque un correo se lee
+        // fuera del servidor; la ruta es la del despliegue (la carpeta sigue
+        // llamándose SIVAC aunque el sistema ya se llame NEST).
+        $logo = 'https://messbook.com.mx/SIVAC/img/NEST/nest-logo-mess.png';
 
         $tel  = htmlspecialchars(SIVAC_RRHH_TELEFONO);
         $cel  = htmlspecialchars(SIVAC_RRHH_CELULAR);
@@ -58,14 +61,14 @@ if (!function_exists('sivacConfigCorreo')) {
             . '<div style="max-width:600px;margin:24px auto;background:#ffffff;border-radius:8px;overflow:hidden;'
             . 'box-shadow:0 2px 8px rgba(0,0,0,.08);">'
             . '<div style="padding:20px 24px 16px;text-align:center;">'
-            . '<img src="' . $logo . '" alt="Grupo MESS" style="max-width:200px;height:auto;">'
+            . '<img src="' . $logo . '" alt="Grupo MESS — NEST" style="max-width:260px;height:auto;">'
             . '</div>'
             . '<div style="background:#074480;padding:12px 24px;text-align:center;color:#ffffff;'
             . 'font-size:17px;font-weight:bold;">' . htmlspecialchars($titulo) . '</div>'
             . '<div style="padding:28px 32px;font-size:15px;line-height:1.6;">' . $cuerpoHtml . '</div>'
             . '<div style="padding:16px 32px;background:#f8f9fc;border-top:1px solid #e5e7eb;'
             . 'font-size:12px;color:#6c757d;text-align:center;line-height:1.7;">'
-            . '<strong style="color:#4b5563;">SIVAC — Sistema de Vacantes y Contratación</strong><br>'
+            . '<strong style="color:#4b5563;">NEST — Núcleo de Evaluación y Selección de Talento</strong><br>'
             . '¿Dudas? Escríbele a Recursos Humanos: ' . implode(' · ', $mails) . '<br>'
             . 'Tel. ' . $tel . ' · Cel. ' . $cel . '<br>'
             . '<span style="color:#9ca3af;">Este buzón es automático: no respondas a esta dirección.</span>'
@@ -112,7 +115,7 @@ if (!function_exists('sivacConfigCorreo')) {
             $mail->CharSet    = 'UTF-8';
             $mail->Username   = $cfg['usuario'];
             $mail->Password   = $cfg['password'];
-            $mail->setFrom($cfg['from_correo'] ?? $cfg['usuario'], $cfg['from_nombre'] ?? 'SIVAC');
+            $mail->setFrom($cfg['from_correo'] ?? $cfg['usuario'], $cfg['from_nombre'] ?? 'NEST');
             $mail->isHTML(true);
             $mail->Subject = $asunto;
             $mail->Body    = sivacPlantillaCorreo($tituloPlantilla, $cuerpoHtml);

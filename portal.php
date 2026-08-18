@@ -124,7 +124,8 @@ function estadoDoc(?array $doc): string {
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Portal del candidato · SIVAC</title>
+    <title>Portal del candidato · NEST</title>
+    <link rel="icon" type="image/png" href="<?= sivacAsset('img/NEST/nest-iso.png') ?>">
     <link href="vendor/fontawesome-free/css/all.min.css" rel="stylesheet">
     <link href="vendor/sb-admin-2/css/sb-admin-2.min.css" rel="stylesheet">
     <link href="vendor/sweetalert2/sweetalert2.min.css" rel="stylesheet">
@@ -136,7 +137,10 @@ function estadoDoc(?array $doc): string {
 <!-- Membrete: es la única pantalla que ve alguien de fuera de la empresa, así que
      tiene que verse de MESS y no como un formulario anónimo pidiéndole su CURP. -->
 <div class="portal-marca">
-    <img src="<?= sivacAsset('img/logo_mess.png') ?>" alt="Grupo MESS">
+    <!-- El lockup con Grupo MESS, no el logo suelto de NEST: al candidato lo que
+         le tiene que sonar es la empresa a la que está entrando, no el nombre
+         interno del sistema. -->
+    <img src="<?= sivacAsset('img/NEST/nest-logo-mess.png') ?>" alt="Grupo MESS — NEST">
     <span class="portal-marca-sistema">Reclutamiento y contratación</span>
 </div>
 

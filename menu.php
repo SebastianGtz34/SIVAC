@@ -19,9 +19,17 @@ function sivacActivo($nombre) {
 ?>
 <ul class="navbar-nav sidebar sidebar-dark accordion bg-gradient-primary" id="accordionSidebar">
 
+    <!-- El isotipo va en el slot del ícono y el nombre en el del texto: SB Admin 2
+         esconde .sidebar-brand-text al colapsar el sidebar, así que separarlos es
+         lo que deja el logo legible en los dos estados. Versión BLANCA porque el
+         sidebar es bg-gradient-primary (azul oscuro). -->
     <a class="sidebar-brand d-flex align-items-center justify-content-center" href="inicio.php">
-        <div class="sidebar-brand-icon"><i class="fas fa-user-tie"></i></div>
-        <div class="sidebar-brand-text mx-2">SIVAC</div>
+        <div class="sidebar-brand-icon">
+            <span class="sidebar-brand-chip">
+                <img src="<?= sivacAsset('img/NEST/nest-iso-ui.png') ?>" alt="" class="sidebar-brand-img">
+            </span>
+        </div>
+        <div class="sidebar-brand-text mx-2">NEST</div>
     </a>
 
     <hr class="sidebar-divider my-0">

@@ -100,18 +100,24 @@ $(function () {
 
     // Documentación
     var docCandidato = 0;
+    var docSoloDatos = false;   // candidato ya contratado: modo consulta + reenvío
     $('#tablaCierre tbody').on('click', '.btnDocs', function () {
         docCandidato = $(this).data('id');
         // Modo consulta (candidato ya contratado): se esconde todo lo que mueve el
-        // proceso; queda el expediente y los datos del alta.
-        var soloDatos = String($(this).data('solo') || '') === '1';
-        $('#bloqueGestionDocs').toggleClass('d-none', soloDatos);
-        $('#btnCompletarAlta').toggleClass('d-none', soloDatos);
+        // proceso; queda el expediente, los datos del alta y el REENVÍO de avisos
+        // —lo único que sigue teniendo sentido hacer sobre un alta ya cerrada—.
+        docSoloDatos = String($(this).data('solo') || '') === '1';
+        $('#bloqueGestionDocs').toggleClass('d-none', docSoloDatos);
+        $('#btnCompletarAlta').toggleClass('d-none', docSoloDatos);
+        $('#btnReenviarAvisos').toggleClass('d-none', !docSoloDatos);
+        $('#avisoReenvio').toggleClass('d-none', !docSoloDatos);
+        // Los requerimientos se decidieron al completar el alta: se ven, no se tocan.
+        $('#bloqueRequerimientos').find('input').prop('disabled', docSoloDatos);
         $('#docs_id').val(docCandidato);
-        $('#docsTitulo').text((soloDatos ? 'Expediente — ' : 'Documentación — ') + $(this).data('nombre'));
+        $('#docsTitulo').text((docSoloDatos ? 'Expediente — ' : 'Documentación — ') + $(this).data('nombre'));
         $('#ingreso_fecha').val(''); $('#prorroga_fecha').val('');
         $('#resumenFechas').empty();   // no dejar a la vista las fechas del candidato anterior
-        $('#formAvisosAlta').toggleClass('d-none', soloDatos);
+        $('#formAvisosAlta').removeClass('d-none');
         cargarFicha();
         cargarDatosAlta();
         cargarAreasAlta();
@@ -125,7 +131,9 @@ $(function () {
      * se queda creyendo que Nóminas recibió su correo.
      */
     function cargarAreasAlta() {
-        $('#alta_viaticos, #alta_celular, #alta_equipo').prop('checked', false);
+        // En modo consulta los requerimientos los pinta cargarDatosAlta() con lo
+        // que quedó guardado; limpiarlos aquí sería una carrera entre dos AJAX.
+        if (!docSoloDatos) $('#alta_viaticos, #alta_celular, #alta_equipo').prop('checked', false);
         ajaxPost('acciones_cierre.php', { accion: 'areas_alta' }, function (err, res) {
             var $c = $('#alta_areas').empty();
             if (err || !res || !res.success || !res.data.length) {
@@ -155,7 +163,7 @@ $(function () {
     function generarEnlaceNuevo(id) {
         ajaxPost('acciones_cierre.php', { accion: 'enlace_portal', id: id, modo: 'nuevo' }, function (err, res) {
             if (!res || !res.success) { mostrarToast((res && res.message) || 'No se pudo generar el enlace.', 'error'); return; }
-            mostrarEnlace(id, res.url, res.message, res.expira, false);
+            mostrarEnlace(id, res.url, res.message, res.expira, false, res.pass);
         });
     }
 
@@ -164,18 +172,68 @@ $(function () {
      * no le rompe nada) y deja generar uno nuevo aparte, que sí invalida el viejo:
      * antes cualquier clic regeneraba y el candidato se quedaba a medias.
      */
-    function mostrarEnlace(id, url, mensaje, expira, esVigente) {
+    /**
+     * Contraseña nueva para el MISMO enlace. Se cierra el diálogo antes de
+     * confirmar para no anidar dos SweetAlert, y al terminar se vuelve a abrir
+     * ya con la clave nueva a la vista — que es la única vez que se puede leer.
+     */
+    function restablecerPass(id, url, expira) {
+        Swal.close();
+        confirmarAccion('Se le genera una contraseña nueva. El enlace y lo que ya entregó '
+            + '<strong>no se tocan</strong>, pero si tiene el portal abierto se le cerrará la sesión.',
+            function () {
+                ajaxPost('acciones_cierre.php', { accion: 'restablecer_pass', id: id }, function (err, res) {
+                    if (!res || !res.success) { mostrarToast((res && res.message) || 'No se pudo restablecer.', 'error'); return; }
+                    mostrarEnlace(id, url, res.message, res.expira || expira, true, res.pass);
+                });
+            },
+            { titulo: 'Restablecer contraseña', confirmar: 'Sí, restablecer', icon: 'warning' });
+    }
+
+    function mostrarEnlace(id, url, mensaje, expira, esVigente, pass, tienePass) {
+        // La contraseña sólo llega al GENERAR: de ella se guarda el hash, no el
+        // claro. Por eso ésta es la única pantalla donde se puede leer, y por eso
+        // se insiste en que viaje en un mensaje APARTE del enlace — son dos
+        // factores y mandarlos juntos los convierte en uno.
+        var bloquePass = '';
+        if (pass) {
+            bloquePass = '<div class="sw-pass">'
+                + '<div class="sw-pass-etq">Contraseña del candidato</div>'
+                + '<div class="sw-pass-valor">' + escHtml(pass) + '</div>'
+                + '<div class="sw-pass-nota">Mándasela en un <strong>mensaje aparte</strong> del enlace. '
+                + 'Es la única vez que se puede ver: si se pierde, se restablece.</div>'
+                + '</div>';
+        } else if (esVigente) {
+            bloquePass = parseInt(tienePass, 10)
+                ? '<p class="small text-muted mt-2 mb-0"><i class="fas fa-lock mr-1"></i>'
+                  + 'Este enlace ya tiene contraseña, y no se puede volver a mostrar.</p>'
+                : '<p class="small text-muted mt-2 mb-0"><i class="fas fa-lock-open mr-1"></i>'
+                  + 'Este enlace es anterior a la contraseña: abre sin ella.</p>';
+        }
+        // «Restablecer» va DENTRO del cuerpo y no como cuarto botón porque
+        // SweetAlert2 sólo admite tres. Es la salida cuando el candidato pierde
+        // la contraseña: antes la única opción era regenerar el enlace, que lo
+        // dejaba tirado a media documentación.
+        var botonReset = '<div class="mt-3"><button type="button" id="sw_reset" '
+            + 'class="btn btn-sm btn-outline-secondary"><i class="fas fa-key mr-1"></i>'
+            + 'Restablecer contraseña</button></div>';
+
         Swal.fire({
             title: 'Enlace del portal del candidato',
             html: '<p class="small text-muted mb-2">' + escHtml(mensaje)
                 + (expira ? ' Vigente hasta el <strong>' + escHtml(expira) + '</strong>.' : '') + '</p>'
-                + '<input id="sw_enlace" class="swal2-input" readonly value="' + escHtml(url) + '" style="font-size:.8rem">',
+                + '<input id="sw_enlace" class="swal2-input" readonly value="' + escHtml(url) + '" style="font-size:.8rem">'
+                + bloquePass + botonReset,
             showCancelButton: true, showDenyButton: esVigente,
             confirmButtonText: 'Copiar',
             denyButtonText: 'Generar uno nuevo',
             cancelButtonText: 'Cerrar',
             confirmButtonColor: messColor('accent'), background: messColor('card-bg'), color: messColor('text'),
-            didOpen: function () { var el = document.getElementById('sw_enlace'); if (el) el.select(); }
+            didOpen: function () {
+                var el = document.getElementById('sw_enlace'); if (el) el.select();
+                var b = document.getElementById('sw_reset');
+                if (b) b.addEventListener('click', function () { restablecerPass(id, url, expira); });
+            }
         }).then(function (r) {
             if (r.isConfirmed) { copiarEnlace(url); return; }
             if (r.isDenied) {
@@ -199,7 +257,7 @@ $(function () {
                     { titulo: 'Generar un enlace nuevo', confirmar: 'Sí, generar', icon: 'warning' });
                 return;
             }
-            mostrarEnlace(id, res.url, res.message, res.expira, true);
+            mostrarEnlace(id, res.url, res.message, res.expira, true, null, res.tiene_pass);
         });
     });
 
@@ -262,6 +320,14 @@ $(function () {
             $('#da_sangre').val(d.tipo_sangre || '');
             pintarFaltan(res.faltan || []);
             pintarFechas(res.contratacion || {});
+
+            // Reenvío: los requerimientos son los que se mandaron en su momento.
+            if (docSoloDatos) {
+                var ct = res.contratacion || {};
+                $('#alta_viaticos').prop('checked', parseInt(ct.req_viaticos, 10) === 1);
+                $('#alta_celular').prop('checked',  parseInt(ct.req_celular, 10)  === 1);
+                $('#alta_equipo').prop('checked',   parseInt(ct.req_equipo, 10)   === 1);
+            }
 
             // Aplicada el alta allá, la fila ya se consumió: sólo lectura.
             var aplicada = parseInt(d.alta_aplicada || 0) === 1;
@@ -386,10 +452,38 @@ $(function () {
                 req_equipo:   $('#alta_equipo').prop('checked')   ? 1 : 0,
                 areas: areas.join(',')
             }, function (err, res) {
-                if (res && res.success) { $('#modalDocs').modal('hide'); mostrarToast(res.message, 'success'); cargar(); }
-                else { mostrarToast((res && res.message) || 'Error.', 'error'); }
+                if (!res || !res.success) { mostrarToast((res && res.message) || 'Error.', 'error'); return; }
+                $('#modalDocs').modal('hide');
+                // El alta quedó hecha, pero si algún correo no salió el toast va en
+                // ámbar: en verde nadie se enteraba y las áreas se quedaban esperando.
+                mostrarToast(res.message, res.aviso ? 'warning' : 'success');
+                cargar();
             });
         }, { titulo: 'Completar alta', confirmar: 'Sí, dar de alta', icon: 'question' });
+    });
+
+    /**
+     * Reenvía los avisos de un alta YA completada. Es el reintento que no existía:
+     * si el correo fallaba (SMTP caído, config de correo ausente en el servidor),
+     * las áreas no se enteraban del ingreso y no había forma de volver a mandarlo.
+     */
+    $('#btnReenviarAvisos').on('click', function (e) {
+        e.preventDefault();
+        var areas = $('.chkAreaAlta:checked').map(function () { return this.value; }).get();
+        if (!areas.length) { mostrarToast('Marca al menos un área.', 'warning'); return; }
+        var nombres = $('.chkAreaAlta:checked').map(function () {
+            return $('label[for="' + this.id + '"]').text().trim();
+        }).get();
+
+        confirmarAccion('Se volverá a enviar el aviso de alta a: <strong>' + escHtml(nombres.join(', '))
+            + '</strong>. Si ya lo habían recibido, les llegará repetido.', function () {
+            ajaxPost('acciones_cierre.php', {
+                accion: 'reenviar_avisos_alta', id: docCandidato, areas: areas.join(',')
+            }, function (err, res) {
+                if (!res) { mostrarToast('Error.', 'error'); return; }
+                mostrarToast(res.message, res.success ? (res.aviso ? 'warning' : 'success') : 'error');
+            });
+        }, { titulo: 'Reenviar avisos', confirmar: 'Sí, reenviar', icon: 'question' });
     });
 
     cargar();

@@ -20,7 +20,7 @@ $puedeSolicitar = puedeSolicitarVacante($conn, $noEmpSesion);
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Mis Vacantes · SIVAC</title>
+    <title>Mis Vacantes · NEST</title>
     <link href="vendor/fontawesome-free/css/all.min.css" rel="stylesheet">
     <link href="vendor/sb-admin-2/css/sb-admin-2.min.css" rel="stylesheet">
     <link href="vendor/sweetalert2/sweetalert2.min.css" rel="stylesheet">

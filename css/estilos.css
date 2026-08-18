@@ -106,9 +106,32 @@ a:hover { color: var(--accent-dark); }
 .sidebar .nav-item.active .nav-link,
 .sidebar .nav-item .nav-link.active { color: #fff; }
 .sidebar .nav-item.active .nav-link i { color: #fff; }
-.sidebar .sidebar-brand { height: auto; padding: 1.25rem 1rem; }
-.sidebar-brand-text { letter-spacing: .04rem; }
+.sidebar .sidebar-brand { height: auto; padding: 1.1rem .75rem; }
+
+/* Marca del sidebar: isotipo + "NEST".
+   DOS COSAS QUE LO HACÍAN VERSE DIMINUTO, por si alguien lo vuelve a tocar:
+   1) Los PNG del manual de marca traen margen transparente —en el isotipo era el
+      38% del lienzo—, así que la altura CSS no es la del dibujo. Por eso aquí se
+      usa `nest-iso-ui.png`, la variante RECORTADA (el original no se tocó).
+   2) SB Admin 2 pinta .sidebar-brand a 1rem, que para "NEST" se queda corto.
+   El isotipo va a COLOR sobre un chip blanco: la versión blanca tiene el círculo
+   en gris claro y la "m" en blanco encima, así que sobre el azul del sidebar se
+   lavaba y la "m" desaparecía. */
+.sidebar-brand-text { letter-spacing: .06rem; font-size: 1.6rem; line-height: 1; }
+.sidebar-brand-chip {
+    background: #fff; border-radius: .7rem; padding: 5px;
+    display: inline-flex; line-height: 0;
+}
+.sidebar-brand-img { height: 34px; width: auto; display: block; }
+/* Colapsado (6.5rem de ancho) el texto desaparece y el isotipo es toda la marca
+   que queda: se le da un poco más de aire. */
+.sidebar.toggled .sidebar-brand-img { height: 40px; }
 .sidebar-heading { color: rgba(255, 255, 255, .5); }
+
+/* Marca de la topbar (sólo móvil, ver encabezado.php): ahí el sidebar está
+   oculto, así que este logo es la única marca en pantalla. Mismo criterio de
+   tamaño que el sidebar: el lienzo del PNG es 21% más alto que el dibujo. */
+.topbar-brand-img { height: 42px; width: auto; }
 
 /* ===== Topbar ===== */
 .topbar {
@@ -157,6 +180,45 @@ a:hover { color: var(--accent-dark); }
 @media (max-width: 420px) {
     .portal-marca-sistema { padding-left: 0; border-left: 0; }
 }
+
+/* Contraseña recién generada, dentro del SweetAlert del enlace (contrataciones).
+   Se muestra grande y con tracking porque RRHH la DICTA por teléfono. */
+.sw-pass {
+    margin-top: 1rem; padding: .9rem 1rem;
+    background: var(--accent-soft); border-radius: .5rem; text-align: center;
+}
+.sw-pass-etq {
+    font-size: .72rem; font-weight: 800; text-transform: uppercase;
+    letter-spacing: .06rem; color: var(--text-muted);
+}
+.sw-pass-valor {
+    font-size: 1.7rem; font-weight: 800; letter-spacing: .18rem; margin: .25rem 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: var(--accent); user-select: all;
+}
+.sw-pass-nota { font-size: .78rem; color: var(--text-muted); line-height: 1.45; }
+
+/* ===== Portal del candidato: la PUERTA (contraseña) =====
+   Es lo primero que ve alguien de fuera de la empresa, en un celular y casi
+   siempre desde WhatsApp. La caja va centrada y estrecha para que el campo caiga
+   bajo el pulgar, y la contraseña se pinta con tracking de código —se dicta por
+   teléfono en dos bloques (K7RM-4XQP)— para que no se confunda al teclearla. */
+.portal-login {
+    display: flex; justify-content: center;
+    padding: 40px 16px 64px;
+}
+.portal-login-caja {
+    width: 100%; max-width: 380px; text-align: center;
+    background: var(--card-bg); border: 1px solid var(--border);
+    border-radius: .75rem; box-shadow: var(--shadow);
+    padding: 2rem 1.75rem;
+}
+.portal-login-campo {
+    letter-spacing: .28rem; font-weight: 700;
+    text-transform: uppercase;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.portal-login-campo::placeholder { letter-spacing: .2rem; font-weight: 400; opacity: .45; }
 
 /* ===== Portal del candidato: secciones plegables y lista de documentos =====
    Son 10 tipos de documento: en cajas grandes la página medía ~1500px de alto y

@@ -124,9 +124,16 @@ if (!function_exists('notificarEvento')) {
      *   - correos string[]           → destinatarios de correo (externos o internos)
      *   - correo_asunto ?string, correo_titulo ?string, correo_html ?string
      *     Si falta correo_html, no se envía correo (solo campana).
+     *
+     * @param ?array $envio SALIDA opcional con el resultado del correo:
+     *   ['intentado'=>bool, 'ok'=>bool, 'error'=>?string, 'para'=>string].
+     *   El fallo ya se guardaba en notificaciones.correo_error, pero el llamador
+     *   no tenía cómo enterarse y acababa reportando como enviado algo que nunca
+     *   salió del servidor (p. ej. sin config_correo.php en producción). Es
+     *   opcional para no tocar a los ~15 llamadores que sólo avisan y siguen.
      * @return int id de la fila de notificaciones insertada.
      */
-    function notificarEvento(mysqli $conn, string $evento, array $datos): int {
+    function notificarEvento(mysqli $conn, string $evento, array $datos, ?array &$envio = null): int {
         // Un evento puede tener VARIOS destinatarios de campana (p. ej. una
         // requisición pendiente de VoBo: todavía no es de nadie en particular, la
         // ve todo RRHH). La bitácora y el correo siguen siendo uno solo.
@@ -147,6 +154,7 @@ if (!function_exists('notificarEvento')) {
         $correoEnviado = 0;
         $correoDestinatarios = null;
         $correoError = null;
+        $envio = ['intentado' => false, 'ok' => false, 'error' => null, 'para' => ''];
 
         if ($correoHtml !== null && $correos) {
             $res = enviarCorreoSivac(
@@ -158,6 +166,12 @@ if (!function_exists('notificarEvento')) {
             $correoEnviado = $res['ok'] ? 1 : 0;
             $correoDestinatarios = mb_substr($res['para'], 0, 500);
             $correoError = $res['ok'] ? null : mb_substr((string)$res['error'], 0, 250);
+            $envio = [
+                'intentado' => true,
+                'ok'        => (bool)$res['ok'],
+                'error'     => $correoError,
+                'para'      => (string)$correoDestinatarios,
+            ];
         }
 
         $stmt = $conn->prepare(
