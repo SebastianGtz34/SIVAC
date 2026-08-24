@@ -258,7 +258,8 @@ $(function () {
                 var miEnt = c.cita_confirmada
                     ? '<div class="small"><i class="fas fa-calendar-check text-primary mr-1"></i>'
                         + '<strong>Tu entrevista:</strong> ' + formatearFecha(c.cita_confirmada) + '</div>'
-                    : '';
+                    : '<div class="small text-muted"><i class="fas fa-clock text-warning mr-1"></i>'
+                        + '<strong> Sugeridas: ' + c.cita_sugerida + '</strong> Cita pendiente de confirmación</div>';
 
                 // Motivo del descarte (sólo en tarjetas descartadas).
                 var motivo = (esDescartado && c.motivo_descarte)
