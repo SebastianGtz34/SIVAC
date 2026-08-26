@@ -14,6 +14,10 @@ $embed = true;
 // acciones_solicitante.php; esto solo evita ofrecer un formulario que el backend
 // va a rechazar.
 $puedeSolicitar = puedeSolicitarVacante($conn, $noEmpSesion);
+// Nombre para el mensaje de "no hay vacantes a tu nombre": decirle "empleado #523"
+// a alguien no le confirma nada; ver su propio nombre sí.
+$datosSesion = obtenerDatosEmpleado($conn, $noEmpSesion);
+$nombreSesion = $datosSesion['nombre'] ?? ('empleado #' . $noEmpSesion);
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -32,7 +36,7 @@ $puedeSolicitar = puedeSolicitarVacante($conn, $noEmpSesion);
         <h5 class="mb-0"><i class="fas fa-briefcase mr-2 text-primary"></i>Mis vacantes</h5>
         <?php if ($puedeSolicitar): ?>
         <button class="btn btn-sm btn-primary" id="btnSolicitar">
-            <i class="fas fa-plus mr-1"></i>Solicitar vacante
+            <i class="fas fa-plus mr-1"></i>Solicitar Candidato
         </button>
         <?php endif; ?>
     </div>
@@ -115,6 +119,7 @@ $(function () {
     var estatusS = window.SIVAC_estatusS || {};
     var estatusS_VAC = window.SIVAC_estatusS_VAC || {};
     var puedeSolicitar = <?= $puedeSolicitar ? 'true' : 'false' ?>;
+    var NOMBRE_SESION = <?= json_encode($nombreSesion, JSON_UNESCAPED_UNICODE) ?>;
     var candidatosData = [];   // caché de mis_candidatos (se filtra por vacante)
     var vacSel = 0;            // vacante seleccionada (master-detalle)
     var hayVacantes = false;   // para que el bloque de abajo no pida "selecciona una"
@@ -139,12 +144,12 @@ $(function () {
                 hayVacantes = false;
                 $c.html('<div class="col-12"><div class="alert alert-info mb-0 small">'
                     + '<i class="fas fa-info-circle mr-1"></i>'
-                    + 'Todavía no hay ninguna vacante <strong>a tu nombre</strong> (empleado #'
-                    + escHtml(String(miNoEmpleado() || '?')) + ').'
+                    + 'Todavía no hay ninguna vacante a nombre de <strong>'
+                    + escHtml(NOMBRE_SESION) + '</strong>.'
                     + '<br>Si RRHH ya abrió una para tu área, pídeles que te registren como '
                     + '<strong>solicitante</strong>: sólo así aparece aquí.'
                     + (puedeSolicitar
-                        ? '<br>También puedes levantar la tuya con <strong>Solicitar vacante</strong>, arriba a la derecha.'
+                        ? '<br>También puedes levantar la tuya con <strong>Solicitar Candidato</strong>, arriba a la derecha.'
                         : '')
                     + '</div></div>');
                 renderCandidatos();
