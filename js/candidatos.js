@@ -80,11 +80,19 @@ $(function () {
             actualizarBtnEnviar();
             if (err || !res || !res.success) { tabla.draw(); return; }
             res.data.forEach(function (c) {
+
+                var sugerenciasDisponibles = [c.cita_jefe_op1, c.cita_jefe_op2].filter(Boolean).join(' ó ');
+
+                var htmlEntrevista = c.cita_jefe_confirmada 
+                    ? '<br><b>Cita confirmada: <span class="badge badge-success">' + c.cita_jefe_confirmada + '</span>'
+                    : (sugerenciasDisponibles ? '<br><b>Opciones Entrevista: <span class="badge badge-dark">' + sugerenciasDisponibles + '</span>' : '');
+
+
                 var chk = (c.estatus === 'aspirante' && c.cv_archivo)
                     ? '<input type="checkbox" class="chkCand" value="' + c.id + '">'
                     : '';
                 var cv = c.cv_archivo
-                    ? '<a href="descargar.php?tipo=cv&id=' + c.id + '" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="fas fa-file-pdf"></i></a>'
+                    ? '<a href="descargar.php?tipo=cv&id=' + c.id + '" target="_blank" class="btn btn-sm btn-outline-primary"><i class="fas fa-file-pdf"></i></a>'
                     : '<span class="text-muted">—</span>';
                 // Acción contextual del pipeline (la que antes vivía en Seguimiento).
                 var acc = '<div class="btn-group btn-group-sm">';
@@ -92,25 +100,25 @@ $(function () {
                     if (c.cita_jefe_pendiente) {
                         // Las dos fechas viajan en el botón para que el diálogo de
                         // confirmación muestre horarios, no «Opción 1 / Opción 2».
-                        acc += '<button class="btn btn-outline-primary btnConfirmar" data-id="' + c.id + '"'
+                        acc += '<button class="btn btn-sm btn-outline-primary btnConfirmar" data-id="' + c.id + '"'
                             + ' data-op1="' + escHtml(c.cita_jefe_op1 || '') + '"'
                             + ' data-op2="' + escHtml(c.cita_jefe_op2 || '') + '"'
-                            + ' title="Confirmar entrevista"><i class="fas fa-calendar-check"></i></button>';
+                            + ' title="Confirmar entrevista"><i class="fas fa-calendar-check"></i> Confirmar entrevista</button>';
                     }
-                    acc += '<button class="btn btn-outline-secondary btnCita" data-id="' + c.id + '" title="Agendar/reprogramar entrevista"><i class="fas fa-calendar-plus"></i></button>';
+                    //acc += '<button class="btn btn-outline-secondary btnCita" data-id="' + c.id + '" title="Agendar/reprogramar entrevista"><i class="fas fa-calendar-plus"></i> Agendar/reprogramar entrevista</button>';
                 } else if (c.estatus === 'entrevistado' || c.estatus === 'propuesta_enviada'
                         || c.estatus === 'propuesta_expirada' || c.estatus === 'propuesta_aceptada'
                         || c.estatus === 'documentacion') {
                     acc += '<a class="btn btn-outline-primary" href="contrataciones.php" title="Ir a cierre (propuesta/documentación)"><i class="fas fa-file-signature"></i></a>';
                 }
-                acc += '<button class="btn btn-outline-secondary btnDetalle" data-id="' + c.id + '" title="Ver ficha"><i class="fas fa-eye"></i></button>'
-                    + '<button class="btn btn-outline-secondary btnEditar" data-id="' + c.id + '" title="Editar"><i class="fas fa-edit"></i></button>';
+                acc += '<button class="btn btn-outline-secondary btnDetalle" data-id="' + c.id + '" title="Ver ficha"><i class="fas fa-eye"></i> Ver Ficha</button>'
+                    + '<button class="btn btn-outline-secondary btnEditar" data-id="' + c.id + '" title="Editar"><i class="fas fa-edit"></i> Editar</button>';
                 // Psicométrico (informativo): disponible desde que se envió al jefe en adelante.
                 if (c.estatus !== 'aspirante' && c.estatus !== 'descartado') {
-                    acc += '<button class="btn btn-outline-info btnPsico" data-id="' + c.id + '" title="Psicométrico"><i class="fas fa-brain"></i></button>';
+                    acc += '<button class="btn btn-outline-info btnPsico" data-id="' + c.id + '" title="Psicométrico"><i class="fas fa-brain"></i>psicometrico/Otras pruebas</button>';
                 }
                 if (c.estatus !== 'contratado' && c.estatus !== 'descartado') {
-                    acc += '<button class="btn btn-outline-danger btnDescartar" data-id="' + c.id + '" title="Descartar"><i class="fas fa-times"></i></button>';
+                    acc += '<button class="btn btn-sm btn-outline-danger btnDescartar" data-id="' + c.id + '" title="Descartar"><i class="fas fa-times"></i> Descartar</button>';
                 }
                 acc += '</div>';
                 tabla.row.add([
@@ -118,7 +126,7 @@ $(function () {
                     escHtml(c.nombre),
                     escHtml(c.folio),
                     '<div>' + escHtml(c.correo) + '</div><div class="text-muted small">' + escHtml(c.telefono || '') + '</div>',
-                    badgeestatusCandidato(c.estatus, estatusS[c.estatus] || c.estatus),
+                    badgeestatusCandidato(c.estatus, estatusS[c.estatus] || c.estatus) + htmlEntrevista,
                     cv,
                     acc
                 ]);

@@ -25,20 +25,20 @@ $(function () {
                 if (c.estatus === 'entrevistado' && parseInt(c.requiere_propuesta) === 0) {
                     // Prácticas: se salta la propuesta económica y pasa directo
                     // a documentación.
-                    acc += '<button class="btn btn-outline-primary btnDocDirecto" data-id="' + c.id + '"><i class="fas fa-forward mr-1"></i>Pasar a documentación</button>';
+                    acc += '<button class="btn btn-outline-primary btnDocDirecto" data-id="' + c.id + '"><i class="fas fa-forward mr-1"></i> Pasar a documentación</button>';
                 } else if (c.estatus === 'entrevistado' || c.estatus === 'propuesta_expirada') {
-                    acc += '<button class="btn btn-outline-primary btnPropuesta" data-id="' + c.id + '"><i class="fas fa-paper-plane mr-1"></i>Propuesta</button>';
+                    acc += '<button class="btn btn-outline-primary btnPropuesta" data-id="' + c.id + '"><i class="fas fa-paper-plane mr-1"></i> Propuesta</button>';
                 } else if (c.estatus === 'propuesta_enviada') {
                     acc += '<button class="btn btn-outline-success btnResp" data-id="' + c.id + '" data-r="aceptada"><i class="fas fa-check"></i></button>';
                     acc += '<button class="btn btn-outline-danger btnResp" data-id="' + c.id + '" data-r="rechazada"><i class="fas fa-times"></i></button>';
                 } else if (c.estatus === 'documentacion') {
-                    acc += '<button class="btn btn-outline-primary btnDocs" data-id="' + c.id + '" data-nombre="' + escHtml(c.nombre) + '"><i class="fas fa-folder-open mr-1"></i>Documentación</button>';
-                    acc += '<button class="btn btn-outline-secondary btnEnlace" data-id="' + c.id + '" title="Ver o generar el enlace del portal del candidato"><i class="fas fa-link"></i></button>';
+                    acc += '<button class="btn btn-outline-primary btnDocs" data-id="' + c.id + '" data-nombre="' + escHtml(c.nombre) + '"><i class="fas fa-folder-open mr-1"></i> Documentación</button>';
+                    acc += '<button class="btn btn-outline-secondary btnEnlace" data-id="' + c.id + '" title="Ver o generar el enlace del portal del candidato"><i class="fas fa-link"></i> Enlace Portal Candidato</button>';
                 } else if (c.estatus === 'contratado') {
                     // Ya contratado: sólo consulta del expediente y de los datos que
                     // jala gestionPersonal (siguen siendo corregibles hasta que allá
                     // se aplique el alta).
-                    acc += '<button class="btn btn-outline-secondary btnDocs" data-id="' + c.id + '" data-nombre="' + escHtml(c.nombre) + '" data-solo="1" title="Ver expediente y datos del alta"><i class="fas fa-id-card"></i></button>';
+                    acc += '<button class="btn btn-outline-secondary btnDocs" data-id="' + c.id + '" data-nombre="' + escHtml(c.nombre) + '" data-solo="1" title="Ver expediente y datos del alta"><i class="fas fa-id-card"></i> Ver expediente</button>';
                 }
                 acc += '</div>';
 
@@ -206,36 +206,50 @@ $(function () {
         } else if (esVigente) {
             bloquePass = parseInt(tienePass, 10)
                 ? '<p class="small text-muted mt-2 mb-0"><i class="fas fa-lock mr-1"></i>'
-                  + 'Este enlace ya tiene contraseña, y no se puede volver a mostrar.</p>'
+                + 'Este enlace ya tiene contraseña, y no se puede volver a mostrar.</p>'
                 : '<p class="small text-muted mt-2 mb-0"><i class="fas fa-lock-open mr-1"></i>'
-                  + 'Este enlace es anterior a la contraseña: abre sin ella.</p>';
+                + 'Este enlace es anterior a la contraseña: abre sin ella.</p>';
         }
-        // «Restablecer» va DENTRO del cuerpo y no como cuarto botón porque
-        // SweetAlert2 sólo admite tres. Es la salida cuando el candidato pierde
-        // la contraseña: antes la única opción era regenerar el enlace, que lo
-        // dejaba tirado a media documentación.
+
         var botonReset = '<div class="mt-3"><button type="button" id="sw_reset" '
             + 'class="btn btn-sm btn-outline-secondary"><i class="fas fa-key mr-1"></i>'
             + 'Restablecer contraseña</button></div>';
+
+        // Input-group ancho con botón de copiar integrado al lado derecho
+        var inputConBoton = '<div class="input-group my-3 px-2">'
+            + '<input id="sw_enlace" type="text" class="form-control" readonly value="' + escHtml(url) + '" style="font-size:.85rem">'
+            + '<div class="input-group-append">'
+            + '<button class="btn btn-primary" type="button" id="sw_copiar"><i class="fas fa-copy mr-1"></i>Copiar</button>'
+            + '</div>'
+            + '</div>';
 
         Swal.fire({
             title: 'Enlace del portal del candidato',
             html: '<p class="small text-muted mb-2">' + escHtml(mensaje)
                 + (expira ? ' Vigente hasta el <strong>' + escHtml(expira) + '</strong>.' : '') + '</p>'
-                + '<input id="sw_enlace" class="swal2-input" readonly value="' + escHtml(url) + '" style="font-size:.8rem">'
+                + inputConBoton
                 + bloquePass + botonReset,
-            showCancelButton: true, showDenyButton: esVigente,
-            confirmButtonText: 'Copiar',
+            showCancelButton: true,
+            showDenyButton: esVigente,
+            showConfirmButton: false, // Ocultamos el confirm ya que la acción copiar está inline
             denyButtonText: 'Generar uno nuevo',
             cancelButtonText: 'Cerrar',
-            confirmButtonColor: messColor('accent'), background: messColor('card-bg'), color: messColor('text'),
+            background: messColor('card-bg'), color: messColor('text'),
             didOpen: function () {
-                var el = document.getElementById('sw_enlace'); if (el) el.select();
+                var el = document.getElementById('sw_enlace'); 
+                if (el) el.select();
+
+                var btnCopiar = document.getElementById('sw_copiar');
+                if (btnCopiar) {
+                    btnCopiar.addEventListener('click', function () {
+                        copiarEnlace(url);
+                    });
+                }
+
                 var b = document.getElementById('sw_reset');
                 if (b) b.addEventListener('click', function () { restablecerPass(id, url, expira); });
             }
         }).then(function (r) {
-            if (r.isConfirmed) { copiarEnlace(url); return; }
             if (r.isDenied) {
                 confirmarAccion('El enlace que ya tiene el candidato dejará de funcionar y habrá que mandarle el nuevo.',
                     function () { generarEnlaceNuevo(id); },

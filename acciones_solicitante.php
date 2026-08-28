@@ -165,7 +165,12 @@ switch ($accion) {
              INNER JOIN vacantes v ON v.id = c.id_vacante
              WHERE v.no_empleado_solicitante = ?
                AND c.estatus <> 'aspirante'
-             ORDER BY (c.estatus = 'descartado') ASC, FIELD(c.estatus,'enviado_solicitante') DESC, c.id DESC"
+             ORDER BY EXISTS (
+                            SELECT 1 FROM citas ci 
+                            WHERE ci.id_candidato = c.id 
+                            AND ci.tipo = 'jefe' 
+                            AND ci.estatus IN ('confirmada', 'realizada')
+                        ) DESC, (c.estatus = 'descartado') ASC, FIELD(c.estatus,'enviado_solicitante') DESC, c.id DESC"
         );
         $stmt->bind_param('i', $noEmp);
         $stmt->execute();
