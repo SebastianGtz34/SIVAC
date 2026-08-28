@@ -261,8 +261,8 @@ $(function () {
 
                 // Estado de MI entrevista (la del jefe), si ya está confirmada.
                 var miEnt = c.cita_confirmada
-                    ? '<div class="small"><i class="fas fa-calendar-check text-primary mr-1"></i>'
-                        + '<strong>Tu entrevista:</strong> ' + formatearFecha(c.cita_confirmada) + '</div>'
+                    ? '<div class="h6 mb-0"><i class="fas fa-calendar-check text-primary mr-1"></i>'
+                        + '<strong>Entrevista a candidato: ' + formatearFecha(c.cita_confirmada) + '</strong></div>'
                     : '<div class="small text-muted"><i class="fas fa-clock text-warning mr-1"></i>'
                         + '<strong> Sugeridas: ' + c.cita_sugerida + '</strong> Cita pendiente de confirmación</div>';
 
@@ -272,7 +272,7 @@ $(function () {
                     : '';
 
                 var cv = c.cv_archivo
-                    ? '<a href="descargar.php?tipo=cv&id=' + c.id + '" target="_blank" class="btn btn-sm btn-primary mr-2"><i class="fas fa-folder-open mr-1"></i>Ver expediente</a>'
+                    ? '<a href="descargar.php?tipo=cv&id=' + c.id + '" target="_blank" class="btn btn-sm btn-primary mr-2"><i class="fas fa-folder-open mr-1"></i>Ver CV</a>'
                     : '';
                 // Acciones según la etapa: aprobar/descartar el CV cuando está por
                 // revisar; aprobar/descartar el resultado de TU entrevista cuando ya

@@ -58,8 +58,8 @@ $(function () {
                 if (v.estatus === 'pendiente_vobo') {
                     acciones += '<button class="btn btn-outline-success btnVobo" data-id="' + v.id + '" title="Revisar requisición"><i class="fas fa-stamp"></i></button>';
                 }
-                acciones += '<button class="btn btn-outline-secondary btnEditar" data-id="' + v.id + '" title="Editar"><i class="fas fa-edit"></i></button>'
-                    + '<button class="btn btn-outline-secondary btnestatus" data-id="' + v.id + '" data-estatus="' + v.estatus + '" title="estatus"><i class="fas fa-random"></i></button>'
+                acciones += '<button class="btn btn-outline-secondary btnEditar" data-id="' + v.id + '" title="Editar"><i class="fas fa-edit"></i> Editar   </button>'
+                    + '<button class="btn btn-outline-secondary btnestatus" data-id="' + v.id + '" data-estatus="' + v.estatus + '" title="estatus"><i class="fas fa-random"></i> Actualizar Estatus</button>'
                     // Con etiqueta y no sólo el ícono: es la salida natural de la
                     // fila (ver a quién se le está buscando) y llega a Candidatos ya
                     // filtrado y con el modal de registro abierto.
