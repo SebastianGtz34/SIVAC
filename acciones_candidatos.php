@@ -8,6 +8,7 @@
 header('Content-Type: application/json; charset=utf-8');
 require_once 'conn.php';
 require_once 'auth.php';
+require_once 'includes/respuesta.php';
 require_once 'includes/archivos.php';
 require_once 'includes/flujo.php';
 require_once 'includes/notificaciones.php';
@@ -23,11 +24,6 @@ $noEmp = requiereSesionJson();
 requiereRRHHJson($conn, $noEmp);
 
 $accion = $_POST['accion'] ?? $_GET['accion'] ?? '';
-
-function responder(bool $success, string $message = '', array $extra = []): void {
-    echo json_encode(array_merge(['success' => $success, 'message' => $message], $extra));
-    exit;
-}
 
 /**
  * Sanea la constancia de la entrevista de RRHH de un request.
@@ -128,11 +124,21 @@ switch ($accion) {
     case 'detalle': {
         $id = (int)($_POST['id'] ?? $_GET['id'] ?? 0);
         if ($id <= 0) responder(false, 'Id inválido.');
+        // La ficha se consulta en CUALQUIER estatus, descartado incluido: es el
+        // expediente del candidato, no la bandeja de pendientes. Que ya no siga
+        // en el proceso es justamente lo que hay que poder revisar después.
+        //
+        // Los prepare() se verifican uno por uno: cuando le falta un ALTER al
+        // servidor, prepare() devuelve false y el ->bind_param() sobre un bool
+        // reventaba con un fatal, o sea HTTP 500 con cuerpo vacío, que en pantalla
+        // sale como «No se pudo cargar.» y no dice qué columna falta. Ver
+        // DESPLIEGUE.md, «Cambios de esquema pendientes».
         $stmt = $conn->prepare(
             "SELECT c.*, v.folio, v.puesto, v.no_empleado_solicitante
              FROM candidatos c INNER JOIN vacantes v ON v.id = c.id_vacante
              WHERE c.id = ? LIMIT 1"
         );
+        if (!$stmt) responder(false, 'No se pudo leer al candidato: ' . $conn->error);
         $stmt->bind_param('i', $id);
         $stmt->execute();
         $cand = $stmt->get_result()->fetch_assoc();
@@ -147,22 +153,29 @@ switch ($accion) {
              LEFT JOIN mess_rrhh.usuarios u ON u.noEmpleado = h.no_empleado
              WHERE h.id_candidato = ? ORDER BY h.id DESC"
         );
+        if (!$stmt) responder(false, 'No se pudo leer el historial: ' . $conn->error);
         $stmt->bind_param('i', $id);
         $stmt->execute();
         $hist = []; $rh = $stmt->get_result();
         while ($r = $rh->fetch_assoc()) $hist[] = $r;
         $stmt->close();
 
-        // Citas, propuestas y documentos (para la ficha completa)
+        // Citas, propuestas y documentos. Son ANEXOS de la ficha: si alguno no se
+        // puede leer se devuelve vacío en vez de tumbar la respuesta, porque lo que
+        // el usuario vino a ver —datos del candidato e historial— ya está resuelto
+        // arriba. Antes, un esquema desfasado en cualquiera de estas tres tablas
+        // dejaba la ficha entera sin abrir.
         $citas = [];
-        $stmt = $conn->prepare("SELECT * FROM citas WHERE id_candidato = ? ORDER BY id DESC");
-        $stmt->bind_param('i', $id); $stmt->execute(); $rc = $stmt->get_result();
-        while ($r = $rc->fetch_assoc()) $citas[] = $r; $stmt->close();
+        if ($stmt = $conn->prepare("SELECT * FROM citas WHERE id_candidato = ? ORDER BY id DESC")) {
+            $stmt->bind_param('i', $id); $stmt->execute(); $rc = $stmt->get_result();
+            while ($r = $rc->fetch_assoc()) $citas[] = $r; $stmt->close();
+        }
 
         $props = [];
-        $stmt = $conn->prepare("SELECT * FROM propuestas WHERE id_candidato = ? ORDER BY id DESC");
-        $stmt->bind_param('i', $id); $stmt->execute(); $rp = $stmt->get_result();
-        while ($r = $rp->fetch_assoc()) $props[] = $r; $stmt->close();
+        if ($stmt = $conn->prepare("SELECT * FROM propuestas WHERE id_candidato = ? ORDER BY id DESC")) {
+            $stmt->bind_param('i', $id); $stmt->execute(); $rp = $stmt->get_result();
+            while ($r = $rp->fetch_assoc()) $props[] = $r; $stmt->close();
+        }
 
         $docs = [];
         $stmt = $conn->prepare(
@@ -171,8 +184,10 @@ switch ($accion) {
              FROM documentos d INNER JOIN documentos_tipos t ON t.id = d.id_tipo
              WHERE d.id_candidato = ? ORDER BY d.id DESC"
         );
-        $stmt->bind_param('i', $id); $stmt->execute(); $rd = $stmt->get_result();
-        while ($r = $rd->fetch_assoc()) $docs[] = $r; $stmt->close();
+        if ($stmt) {
+            $stmt->bind_param('i', $id); $stmt->execute(); $rd = $stmt->get_result();
+            while ($r = $rd->fetch_assoc()) $docs[] = $r; $stmt->close();
+        }
 
         responder(true, '', ['data' => $cand, 'historial' => $hist, 'citas' => $citas, 'propuestas' => $props, 'documentos' => $docs]);
     }

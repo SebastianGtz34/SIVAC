@@ -84,6 +84,20 @@ SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS
 Debe devolver **cuatro** filas, todas de `candidato_accesos` (`token`, `pass_hash`,
 `intentos`, `bloqueado_hasta`) y **ninguna** de sueldo.
 
+### Validación de documentos (17-ago) — comprobar antes de descartarlo
+Estas columnas entraron con la retro de validación de documentos y **nunca se
+anotaron aquí**, así que no consta si se aplicaron en producción. Comprobar:
+
+```sql
+SELECT COLUMN_NAME FROM information_schema.COLUMNS
+ WHERE TABLE_SCHEMA = 'mess_sivac' AND TABLE_NAME = 'documentos'
+   AND COLUMN_NAME IN ('origen','validacion','validado_por','validado_fecha','motivo_validacion');
+```
+Deben salir **cinco** filas. Si faltan, correr el `ALTER` equivalente tomando los
+tipos de `database.sql` (tabla `documentos`). La consulta de la ficha del
+candidato las pide por nombre: sin ellas, `prepare()` devolvía `false` y la ficha
+no abría —el `SELECT *` de otras pantallas no lo delata, por eso pasó inadvertido—.
+
 ## ⚠️ Lo que NO viaja con el proyecto (hay que crearlo en el destino)
 - **`conn.php`** — está *gitignored*. Copiar de `conn.example.php` y poner las
   credenciales MySQL del equipo destino. **Sin esto, nada conecta.**
@@ -113,7 +127,7 @@ Debe devolver **cuatro** filas, todas de `candidato_accesos` (`token`, `pass_has
    —desde la retro PT1— también **`mess_rrhh.puesto` y `mess_rrhh.region`**
    (cross-DB). Necesitas **`mess_sivac` Y `mess_rrhh`** en el destino, y que el
    usuario MySQL tenga **SELECT en ambas**. El presentador (523) debe existir en
-   `mess_rrhh` con departamento 26 o 27 para entrar como RRHH.
+   `mess_rrhh` con departamento 27 (BI) o 47 (RRHH) para entrar como RRHH.
    > Si el select de puestos del alta de vacante sale **vacío**, es que falta el
    > SELECT sobre `mess_rrhh.puesto` (o no hay puestos con `estatus = 1`).
    > Para demostrar el rol de **jefe/gerente** (requisición con VoBo + dashboard
@@ -121,9 +135,11 @@ Debe devolver **cuatro** filas, todas de `candidato_accesos` (`token`, `pass_has
    > `mess_rrhh.usuarios.jefe` — el rol se deriva de ahí, no de `tipo_usr`.
 3. **Nombre de carpeta = `SIVAC`**: los enlaces de loginMaster son `../SIVAC/`.
 4. **Dos archivos de loginMaster (OTRO repo git) que hay que subir aparte:**
-   - **`loginMaster/inicio.php`** — la card de SIVAC, la pestaña «Mis Vacantes» y
-     su lista `$empleadosSivacTab` (gemela de `SIVAC_EMPLEADOS_TAB` en `auth.php`:
-     si agregas a alguien, va en las dos).
+   - **`loginMaster/inicio.php`** — la card de SIVAC y la pestaña «Mis Vacantes».
+     Su gate `$tieneSivacSolicitante` (jefe con personal a cargo, o dueño de
+     alguna vacante) es **gemelo de `puedeSolicitarVacante()` en `auth.php`**: si
+     cambia uno cambia el otro, o alguien verá la pestaña con el botón muerto —o
+     tendrá el permiso sin puerta por dónde entrar—.
    - **`loginMaster/funcionesGlobales.js`** — el endpoint `sivac`, el ícono y la
      redirección de las notificaciones. **Sin este archivo las notificaciones de
      SIVAC salen, pero el clic no lleva a ningún lado.**
@@ -178,9 +194,13 @@ directo. Detalle en la sección «Despliegue en cPanel» del `README.md`.
 ---
 
 ## Estado actual
-- **En producción** en `messbook.com.mx/SIVAC` con vacantes y candidatos reales,
-  en prueba cerrada: la pestaña «Mis Vacantes» sólo la ven los empleados de
-  `$empleadosSivacTab` / `SIVAC_EMPLEADOS_TAB` y los dueños de alguna vacante.
+- **En producción** en `messbook.com.mx/SIVAC` con vacantes y candidatos reales.
+  **Liberado el 2026-09-01**: terminó la prueba cerrada y se quitaron las dos
+  listas blancas hardcodeadas (`SIVAC_EMPLEADOS_TAB` en `auth.php` y
+  `$empleadosSivacTab` en `loginMaster/inicio.php`). La pestaña «Mis Vacantes» y
+  el permiso de levantar requisición los tiene ahora **cualquier jefe con
+  personal a cargo**, más los **dueños de alguna vacante** —de ahí que quien ya
+  traía un proceso empezado no lo pierda—.
 - El flujo completo está construido: requisición con VoBo, candidatos, entrevista
   del jefe, propuesta, documentación validada por RRHH, portal del candidato con
   acceso por token, alta con avisos por área y notificaciones en la campana del

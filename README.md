@@ -46,7 +46,7 @@ económica (pasan de entrevistado directo a documentación).
 ## Roles
 | Rol | Quién | Acceso |
 |---|---|---|
-| RRHH / Reclutamiento | Departamentos **26 (BI)** y **27 (RRHH)** — constante `SIVAC_DEPTS_RRHH` en `auth.php` | Sistema completo (card en loginMaster). Da el VoBo y entrevista antes que el jefe |
+| RRHH / Reclutamiento | Departamentos **27 (BI)** y **47 (RRHH)** — constante `SIVAC_DEPTS_RRHH` en `auth.php` | Sistema completo (card en loginMaster). Da el VoBo y entrevista antes que el jefe |
 | Jefe / gerente | Empleado con **al menos un subordinado activo** (`mess_rrhh.usuarios.jefe` apunta a él) | Levanta requisiciones (nacen `pendiente_vobo`) y ve el dashboard **acotado a su equipo** |
 | Solicitante | Dueño de la vacante (`vacantes.no_empleado_solicitante`), cualquier depto | Pestaña "Mis Vacantes" (iframe `embed_solicitante.php`): aprueba/descarta CVs y da 2 fechas de entrevista |
 | Consulta | Tabla `accesos_consulta` (la administra RRHH en Configuración) | `embed_consulta.php`, solo lectura sin datos personales |
@@ -277,9 +277,11 @@ no cambie si el empleado se mueve de región después.
 Además: `conn.php` y `config_correo.php` gitignored (hay `.example` committeados).
 
 ## Integración con loginMaster (ya aplicada en `loginMaster/inicio.php`)
-1. **Gate PHP** (tras el bloque `$tieneVehiculo`): `$tieneSivac` (deptos 26/27
-   vía `mess_rrhh.usuarios`) y `$tieneSivacSolicitante` (dueño de vacante activa
-   vía `mess_sivac.vacantes`, cross-DB con el `$conn` existente).
+1. **Gate PHP** (tras el bloque `$tieneVehiculo`): `$tieneSivac` (deptos 27/47
+   vía `mess_rrhh.usuarios`) y `$tieneSivacSolicitante` (jefe con personal a
+   cargo, o dueño de alguna vacante en `mess_sivac.vacantes`, cross-DB con el
+   `$conn` existente). Este último es **gemelo de `puedeSolicitarVacante()`** en
+   `auth.php`: la pestaña y el permiso se mueven juntos.
 2. **Card** `id="divSivac"` en el tab `#tabSistemas` (junto a Cotizador IA),
    envuelta en `<?php if ($tieneSivac): ?>` → enlaza `../SIVAC/`.
 3. **Pestaña "Mis Vacantes"** (`#tabSivacSol-tab`, solo si

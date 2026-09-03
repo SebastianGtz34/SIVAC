@@ -13,15 +13,11 @@
 header('Content-Type: application/json; charset=utf-8');
 require_once 'conn.php';
 require_once 'auth.php';
+require_once 'includes/respuesta.php';
 require_once 'includes/notificaciones.php';
 
 $noEmp = requiereSesionJson();
 $accion = $_POST['accion'] ?? $_GET['accion'] ?? '';
-
-function responder(bool $success, string $message = '', array $extra = []): void {
-    echo json_encode(array_merge(['success' => $success, 'message' => $message], $extra));
-    exit;
-}
 
 switch ($accion) {
 

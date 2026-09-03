@@ -288,7 +288,13 @@ $(function () {
     $('#tablaCandidatos tbody').on('click', '.btnDetalle', function () {
         var id = $(this).data('id');
         ajaxPost('acciones_candidatos.php', { accion: 'detalle', id: id }, function (err, res) {
-            if (err || !res || !res.success) { mostrarToast('No se pudo cargar.', 'error'); return; }
+            // El mensaje del servidor se muestra tal cual: un «No se pudo cargar.»
+            // a secas no distingue entre un id malo, un candidato borrado y una
+            // columna que le falta al servidor, y esos se diagnostican distinto.
+            if (err || !res || !res.success) {
+                mostrarToast((res && res.message) || 'No se pudo cargar la ficha.', 'error');
+                return;
+            }
             $('#detalleTitulo').text((res.data.nombre + ' ' + (res.data.apellidos || '')).trim() + ' — ' + res.data.folio);
             $('#detalleBody').html(construirDetalle(res));
             $('#modalDetalle').modal('show');
@@ -300,7 +306,10 @@ $(function () {
         var id = $(this).data('id');
         // Se precarga con la ficha (detalle trae c.* con el bloque psicometrico_*).
         ajaxPost('acciones_candidatos.php', { accion: 'detalle', id: id }, function (err, res) {
-            if (err || !res || !res.success) { mostrarToast('No se pudo cargar.', 'error'); return; }
+            if (err || !res || !res.success) {
+                mostrarToast((res && res.message) || 'No se pudo cargar el psicométrico.', 'error');
+                return;
+            }
             var c = res.data;
             $('#formPsicometrico')[0].reset();
             $('#ps_id').val(c.id);
@@ -331,6 +340,17 @@ $(function () {
             + '<div class="col-md-6"><div class="text-muted small">Correo</div>' + escHtml(c.correo) + '</div>'
             + '<div class="col-md-6"><div class="text-muted small">Teléfono</div>' + escHtml(c.telefono || '—') + '</div>'
             + '</div>';
+        // Descarte: el motivo y la etapa en que ocurrió. Es lo primero que se busca
+        // al abrir la ficha de alguien que ya no sigue en el proceso, así que va
+        // arriba y no enterrado al final del historial.
+        if (c.estatus === 'descartado') {
+            h += '<div class="alert alert-warning py-2 px-3 mb-3">'
+                + '<div class="text-muted small">Descartado'
+                + (c.etapa_descarte ? ' en la etapa: ' + escHtml(estatusS[c.etapa_descarte] || c.etapa_descarte) : '')
+                + '</div>'
+                + escHtml(c.motivo_descarte || 'Sin motivo registrado.')
+                + '</div>';
+        }
         if (c.cv_archivo) {
             h += '<a href="descargar.php?tipo=cv&id=' + c.id + '" target="_blank" class="btn btn-sm btn-outline-primary mb-3"><i class="fas fa-file-pdf mr-1"></i> Ver CV</a>';
         }
