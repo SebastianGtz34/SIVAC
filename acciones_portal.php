@@ -14,6 +14,7 @@
  */
 header('Content-Type: application/json; charset=utf-8');
 require_once 'conn.php';
+require_once 'includes/respuesta.php';
 require_once 'includes/archivos.php';
 require_once 'includes/accesos.php';
 require_once 'includes/datos_alta.php';
@@ -22,11 +23,6 @@ require_once 'includes/notificaciones.php';
 // POST desbordado (archivo mayor que post_max_size) antes de tocar $_POST.
 if (sivacPostDesbordado()) {
     echo json_encode(['success' => false, 'message' => 'El archivo excede el tamaño máximo permitido por el servidor.']);
-    exit;
-}
-
-function responder(bool $success, string $message = '', array $extra = []): void {
-    echo json_encode(array_merge(['success' => $success, 'message' => $message], $extra));
     exit;
 }
 

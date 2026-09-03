@@ -34,13 +34,6 @@
 // 27 = Business Intelligence, 47 = Recursos Humanos (mess_rrhh.departamento).
 define('SIVAC_DEPTS_RRHH', [27, 47]);
 
-// Empleados de la prueba cerrada que ven la pestaña «Mis Vacantes» del portal y,
-// por lo tanto, pueden levantar su requisición aunque no tengan personal a cargo.
-// ⚠️ GEMELA de $empleadosSivacTab en loginMaster/inicio.php (OTRO repo): quien
-// abre la pestaña allá tiene que poder usarla aquí, así que las dos listas se
-// mueven juntas. Al terminar la prueba se quitan las dos.
-define('SIVAC_EMPLEADOS_TAB', [523, 360, 569, 403, 487, 183, 276, 161, 45, 260]);
-
 // Departamentos que RECIBEN los avisos internos. Es un subconjunto del anterior:
 // BI entra a SIVAC como súper-usuario (soporte y desarrollo), pero no lleva el
 // proceso de reclutamiento, así que no se le llena la campana. ACCESO y AVISOS
@@ -292,20 +285,28 @@ if (!function_exists('sivacAuthNoEmpleado')) {
     /**
      * ¿Puede levantar una requisición de vacante?
      *
-     * La regla es «quien ve la pestaña Mis Vacantes, la puede usar»: no tiene
-     * sentido abrirle la ventana a alguien y dejarle el botón deshabilitado. Por
-     * eso replica las dos condiciones de la pestaña (SIVAC_EMPLEADOS_TAB o ser
-     * dueño de alguna vacante) y suma las dos que ya existían: jefe con equipo y
-     * RRHH —éste también levanta por su vía normal (acciones_vacantes.php), que no
-     * pasa por VoBo—.
+     * Tres vías, y cada una cubre algo distinto:
+     *  - Jefe con equipo → la regla de fondo: quien tiene personal a cargo es
+     *    quien pide gente. Se deriva de mess_rrhh.usuarios.jefe (relación real),
+     *    no de la etiqueta tipo_usr, que está incompleta.
+     *  - RRHH → levanta además por su vía normal (acciones_vacantes.php), que no
+     *    pasa por VoBo.
+     *  - Dueño de alguna vacante → conserva el permiso quien ya tiene un proceso
+     *    abierto aunque hoy no figure como jefe; si no, se le congelaría una
+     *    requisición a medias. Cubre también al solicitante que RRHH capturó a
+     *    mano, sin tener que darlo de alta en ningún lado.
      *
-     * Hacía falta porque el rol de jefe se deriva de tener subordinados activos en
-     * mess_rrhh.usuarios.jefe, y hay solicitantes reales que no los tienen.
+     * La regla es «quien ve la pestaña Mis Vacantes, la puede usar»: no tiene
+     * sentido abrirle la ventana a alguien y dejarle el botón deshabilitado, ni
+     * al revés. Es GEMELA de $tieneSivacSolicitante en loginMaster/inicio.php
+     * (OTRO repo): si cambia una, cambia la otra.
+     *
+     * Hasta la liberación del 2026-09-01 había además una lista blanca de la
+     * prueba cerrada (SIVAC_EMPLEADOS_TAB); se quitó aquí y en loginMaster.
      */
     function puedeSolicitarVacante(mysqli $conn, int $noEmpleado): bool {
         return esJefe($conn, $noEmpleado)
             || esRRHH($conn, $noEmpleado)
-            || in_array($noEmpleado, SIVAC_EMPLEADOS_TAB, true)
             || esSolicitanteDeAlguna($conn, $noEmpleado);
     }
 }
