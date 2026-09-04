@@ -354,6 +354,455 @@ switch ($accion) {
         responder(false, 'Resultado inválido.');
     }
 
+// =========================================================================
+    // CREAR SOLICITUD DE PUESTO (INSERT ÚNICO EN solicitudes_puesto)
+    // =========================================================================
+    case 'crear_solicitud_posicion': {
+        // 1. Campos obligatorios principales
+        $nombre_puesto     = trim($_POST['nombre_puesto'] ?? '');
+        $fecha_solicitud   = !empty($_POST['fecha_solicitud']) ? trim($_POST['fecha_solicitud']) : date('Y-m-d');
+        $numero_vacantes   = max(1, (int)($_POST['numero_vacantes'] ?? 1));
+        $area              = trim($_POST['area'] ?? '');
+        $jefe_solicitante  = trim($_POST['jefe_solicitante'] ?? '');
+        $sede              = trim($_POST['sede'] ?? '');
+        $tipo_contratacion = trim($_POST['tipo_contratacion'] ?? '');
+
+        if (empty($nombre_puesto) || empty($area) || empty($jefe_solicitante) || empty($tipo_contratacion)) {
+            responder(false, 'Por favor completa los campos obligatorios (*).');
+        }
+
+        // 2. Esquema de contratación y detalles opcionales
+        $especificacion_temporal  = trim($_POST['especificacion_temporal'] ?? '');
+        $proyecto_nombre          = trim($_POST['proyecto_nombre'] ?? '');
+        $carreras_solicitadas      = trim($_POST['carreras_solicitadas'] ?? '');
+        $proyecto_objetivo        = trim($_POST['proyecto_objetivo'] ?? '');
+        $practicante_actividades  = trim($_POST['practicante_actividades'] ?? '');
+        $periodo_estimado         = trim($_POST['periodo_estimado'] ?? '');
+        $horario_solicitado       = trim($_POST['horario_solicitado'] ?? '');
+        $horas_requeridas         = (int)($_POST['horas_requeridas'] ?? 0);
+        $posibilidad_contratacion = trim($_POST['posibilidad_contratacion'] ?? '');
+
+        // 3. Justificación Operativa
+        $motivo_necesidad             = trim($_POST['motivo_necesidad'] ?? '');
+        $evaluo_redistribucion        = trim($_POST['evaluo_redistribucion'] ?? '');
+        $justificacion_redistribucion = trim($_POST['justificacion_redistribucion'] ?? '');
+        $problema_resuelve            = trim($_POST['problema_resuelve'] ?? '');
+        $quien_realiza_actualmente    = trim($_POST['quien_realiza_actualmente'] ?? '');
+        $funciones_principales        = trim($_POST['funciones_principales'] ?? '');
+        $riesgos_no_autorizacion      = trim($_POST['riesgos_no_autorizacion'] ?? '');
+        $impacto_kpis                 = trim($_POST['impacto_kpis'] ?? '');
+
+        // 4. Perfil Deseado
+        $escolaridad            = trim($_POST['escolaridad'] ?? '');
+        $carrera                = trim($_POST['carrera'] ?? '');
+        $experiencia            = trim($_POST['experiencia'] ?? '');
+        $conocimientos_tecnicos = trim($_POST['conocimientos_tecnicos'] ?? '');
+        $software_requerido     = trim($_POST['software_requerido'] ?? '');
+
+        // 5. Presupuesto y Recursos
+        $sueldo_mensual_propuesto = (float)($_POST['sueldo_mensual_propuesto'] ?? 0);
+        $accede_comisiones_bonos  = trim($_POST['accede_comisiones_bonos'] ?? 'No');
+        $fecha_ideal_ingreso      = !empty($_POST['fecha_ideal_ingreso']) ? trim($_POST['fecha_ideal_ingreso']) : date('Y-m-d');
+        $cuenta_estacion_trabajo  = trim($_POST['cuenta_estacion_trabajo'] ?? 'No');
+
+        // Convierte el array de checkboxes a string formateado para la columna SET
+        $equipo_array = $_POST['equipo_requerido'] ?? [];
+        $equipo_requerido = is_array($equipo_array) ? implode(',', $equipo_array) : '';
+
+        // Query INSERT parametrizada de 34 campos
+        $sql = "INSERT INTO solicitudes_puesto (
+            nombre_puesto, fecha_solicitud, numero_vacantes, area, jefe_solicitante, sede, tipo_contratacion,
+            especificacion_temporal, proyecto_nombre, carreras_solicitadas, proyecto_objetivo, practicante_actividades,
+            periodo_estimado, horario_solicitado, horas_requeridas, posibilidad_contratacion,
+            motivo_necesidad, evaluo_redistribucion, justificacion_redistribucion, problema_resuelve,
+            quien_realiza_actualmente, funciones_principales, riesgos_no_autorizacion, impacto_kpis,
+            escolaridad, carrera, experiencia, conocimientos_tecnicos, software_requerido,
+            sueldo_mensual_propuesto, accede_comisiones_bonos, fecha_ideal_ingreso, cuenta_estacion_trabajo, equipo_requerido
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+
+        $stmt = $conn->prepare($sql);
+        if (!$stmt) {
+            responder(false, 'Error al preparar la consulta: ' . $conn->error);
+        }
+
+        // Arreglo de los 34 parámetros exactos
+        $params = [
+            $nombre_puesto, $fecha_solicitud, $numero_vacantes, $area, $jefe_solicitante, $sede, $tipo_contratacion,
+            $especificacion_temporal, $proyecto_nombre, $carreras_solicitadas, $proyecto_objetivo, $practicante_actividades,
+            $periodo_estimado, $horario_solicitado, $horas_requeridas, $posibilidad_contratacion,
+            $motivo_necesidad, $evaluo_redistribucion, $justificacion_redistribucion, $problema_resuelve,
+            $quien_realiza_actualmente, $funciones_principales, $riesgos_no_autorizacion, $impacto_kpis,
+            $escolaridad, $carrera, $experiencia, $conocimientos_tecnicos, $software_requerido,
+            $sueldo_mensual_propuesto, $accede_comisiones_bonos, $fecha_ideal_ingreso, $cuenta_estacion_trabajo, $equipo_requerido
+        ];
+
+        // Construcción dinámica de la cadena de tipos (garantiza exactitud en la longitud)
+        $types = '';
+        foreach ($params as $param) {
+            if (is_int($param)) {
+                $types .= 'i';
+            } elseif (is_float($param)) {
+                $types .= 'd';
+            } else {
+                $types .= 's';
+            }
+        }
+
+        // Vincular parámetros y ejecutar
+        $stmt->bind_param($types, ...$params);
+
+        $ok = $stmt->execute();
+        if (!$ok) {
+            $err = $stmt->error;
+            $stmt->close();
+            responder(false, 'Error MySQL: ' . $err);
+        }
+
+        $stmt->close();
+        responder(true, 'La solicitud del nuevo puesto ha sido enviada correctamente.');
+    }
+
+    // =========================================================================
+    // CONSULTA DE SEGUIMIENTO (SELECT DESDE solicitudes_puesto)
+    // =========================================================================
+    case 'mis_solicitudes_posicion': {
+        // Obtener el número de empleado actual desde la sesión/cookie
+        $noEmpActual = (int)($_COOKIE['noEmpleado'] ?? 0);
+
+        // Si es Dirección (19 o 403), ve absolutamente TODAS las solicitudes.
+        // Si no, ve las que él creó O las que le toca autorizar como Jefe/Gerencia.
+        if (in_array($noEmpActual, [19, 403])) {
+            $sql = "SELECT s.id, s.nombre_puesto, s.fecha_solicitud, s.numero_vacantes, s.tipo_contratacion, 
+                            s.estado_gerencia, s.estado_direccion, s.estado_general, s.comentarios_gerencia, 
+                            s.comentarios_direccion, s.jefe_solicitante,
+                            u.nombres, u.apellidos,
+                            j.nombres as nombre_J, j.apellidos as apellidos_J, j.noEmpleado as noEmpleado_J
+                    FROM solicitudes_puesto s
+                    INNER JOIN mess_rrhh.usuarios u ON s.jefe_solicitante = u.noEmpleado
+                    LEFT JOIN mess_rrhh.usuarios j ON u.jefe = j.noEmpleado
+                    ORDER BY s.id DESC";
+            $stmt = $conn->prepare($sql);
+        } else {
+            $sql = "SELECT s.id, s.nombre_puesto, s.fecha_solicitud, s.numero_vacantes, s.tipo_contratacion, 
+                            s.estado_gerencia, s.estado_direccion, s.estado_general, s.comentarios_gerencia, 
+                            s.comentarios_direccion, s.jefe_solicitante,
+                            u.nombres, u.apellidos,
+                            j.nombres as nombre_J, j.apellidos as apellidos_J, j.noEmpleado as noEmpleado_J
+                    FROM solicitudes_puesto s
+                    INNER JOIN mess_rrhh.usuarios u ON s.jefe_solicitante = u.noEmpleado
+                    LEFT JOIN mess_rrhh.usuarios j ON u.jefe = j.noEmpleado
+                    WHERE s.jefe_solicitante = ? OR u.jefe = ?
+                    ORDER BY s.id DESC";
+            $stmt = $conn->prepare($sql);
+            $stmt->bind_param('ii', $noEmpActual, $noEmpActual);
+        }
+
+        $stmt->execute();
+        $res = $stmt->get_result();
+        $data = [];
+        while ($row = $res->fetch_assoc()) {
+            $data[] = $row;
+        }
+        $stmt->close();
+
+        responder(true, '', $data);
+    }
+
+    // =========================================================================
+    // OBTENER INFORMACIÓN COMPLETA DE UNA SOLICITUD POR ID
+    // =========================================================================
+    case 'obtener_solicitud_posicion': {
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id <= 0) responder(false, 'ID de solicitud inválido.');
+
+        $stmt = $conn->prepare("SELECT * FROM solicitudes_puesto WHERE id = ?");
+        $stmt->bind_param('i', $id);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        $data = $res->fetch_assoc();
+        $stmt->close();
+
+        if (!$data) {
+            responder(false, 'Solicitud no encontrada.');
+        }
+
+        responder(true, '', $data);
+    }
+
+    // =========================================================================
+    // ACTUALIZAR REGISTRO EXISTENTE (UPDATE EN solicitudes_puesto)
+    // =========================================================================
+    case 'actualizar_solicitud_posicion': {
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id <= 0) responder(false, 'ID de solicitud inválido.');
+
+        // Validar que NINGUNA de las dos áreas haya emitido dictamen aún
+        $stmtCheck = $conn->prepare("SELECT estado_gerencia, estado_direccion FROM solicitudes_puesto WHERE id = ?");
+        $stmtCheck->bind_param('i', $id);
+        $stmtCheck->execute();
+        $solicitudActual = $stmtCheck->get_result()->fetch_assoc();
+        $stmtCheck->close();
+
+        if (!$solicitudActual) {
+            responder(false, 'La solicitud no existe.');
+        }
+
+        if ($solicitudActual['estado_gerencia'] !== 'Pendiente' || $solicitudActual['estado_direccion'] !== 'Pendiente') {
+            responder(false, 'No es posible editar la solicitud porque ya cuenta con una resolución registrada (Gerencia o Dirección).');
+        }
+
+        $nombre_puesto     = trim($_POST['nombre_puesto'] ?? '');
+        $numero_vacantes   = max(1, (int)($_POST['numero_vacantes'] ?? 1));
+        $area              = trim($_POST['area'] ?? '');
+        $sede              = trim($_POST['sede'] ?? '');
+        $tipo_contratacion = trim($_POST['tipo_contratacion'] ?? '');
+
+        if (empty($nombre_puesto) || empty($area) || empty($tipo_contratacion)) {
+            responder(false, 'Por favor completa los campos obligatorios (*).');
+        }
+
+        $especificacion_temporal  = trim($_POST['especificacion_temporal'] ?? '');
+        $proyecto_nombre          = trim($_POST['proyecto_nombre'] ?? '');
+        $carreras_solicitadas      = trim($_POST['carreras_solicitadas'] ?? '');
+        $proyecto_objetivo        = trim($_POST['proyecto_objetivo'] ?? '');
+        $practicante_actividades  = trim($_POST['practicante_actividades'] ?? '');
+        $periodo_estimado         = trim($_POST['periodo_estimado'] ?? '');
+        $horario_solicitado       = trim($_POST['horario_solicitado'] ?? '');
+        $horas_requeridas         = (int)($_POST['horas_requeridas'] ?? 0);
+        $posibilidad_contratacion = trim($_POST['posibilidad_contratacion'] ?? '');
+
+        $motivo_necesidad             = trim($_POST['motivo_necesidad'] ?? '');
+        $evaluo_redistribucion        = trim($_POST['evaluo_redistribucion'] ?? '');
+        $justificacion_redistribucion = trim($_POST['justificacion_redistribucion'] ?? '');
+        $problema_resuelve            = trim($_POST['problema_resuelve'] ?? '');
+        $quien_realiza_actualmente    = trim($_POST['quien_realiza_actualmente'] ?? '');
+        $funciones_principales        = trim($_POST['funciones_principales'] ?? '');
+        $riesgos_no_autorizacion      = trim($_POST['riesgos_no_autorizacion'] ?? '');
+        $impacto_kpis                 = trim($_POST['impacto_kpis'] ?? '');
+
+        $escolaridad            = trim($_POST['escolaridad'] ?? '');
+        $carrera                = trim($_POST['carrera'] ?? '');
+        $experiencia            = trim($_POST['experiencia'] ?? '');
+        $conocimientos_tecnicos = trim($_POST['conocimientos_tecnicos'] ?? '');
+        $software_requerido     = trim($_POST['software_requerido'] ?? '');
+
+        $sueldo_mensual_propuesto = (float)($_POST['sueldo_mensual_propuesto'] ?? 0);
+        $accede_comisiones_bonos  = trim($_POST['accede_comisiones_bonos'] ?? 'No');
+        $fecha_ideal_ingreso      = !empty($_POST['fecha_ideal_ingreso']) ? trim($_POST['fecha_ideal_ingreso']) : date('Y-m-d');
+        $cuenta_estacion_trabajo  = trim($_POST['cuenta_estacion_trabajo'] ?? 'No');
+
+        $equipo_array = $_POST['equipo_requerido'] ?? [];
+        $equipo_requerido = is_array($equipo_array) ? implode(',', $equipo_array) : '';
+
+        $sql = "UPDATE solicitudes_puesto SET
+            nombre_puesto = ?, numero_vacantes = ?, area = ?, sede = ?, tipo_contratacion = ?,
+            especificacion_temporal = ?, proyecto_nombre = ?, carreras_solicitadas = ?, proyecto_objetivo = ?, practicante_actividades = ?,
+            periodo_estimado = ?, horario_solicitado = ?, horas_requeridas = ?, posibilidad_contratacion = ?,
+            motivo_necesidad = ?, evaluo_redistribucion = ?, justificacion_redistribucion = ?, problema_resuelve = ?,
+            quien_realiza_actualmente = ?, funciones_principales = ?, riesgos_no_autorizacion = ?, impacto_kpis = ?,
+            escolaridad = ?, carrera = ?, experiencia = ?, conocimientos_tecnicos = ?, software_requerido = ?,
+            sueldo_mensual_propuesto = ?, me_accede_bonos = ?, fecha_ideal_ingreso = ?, cuenta_estacion_trabajo = ?, equipo_requerido = ?
+            WHERE id = ?";
+
+        // Corregido: 'accede_comisiones_bonos' en SQL
+        $sql = str_replace('me_accede_bonos', 'accede_comisiones_bonos', $sql);
+
+        $params = [
+            $nombre_puesto, $numero_vacantes, $area, $sede, $tipo_contratacion,
+            $especificacion_temporal, $proyecto_nombre, $carreras_solicitadas, $proyecto_objetivo, $practicante_actividades,
+            $periodo_estimado, $horario_solicitado, $horas_requeridas, $posibilidad_contratacion,
+            $motivo_necesidad, $evaluo_redistribucion, $justificacion_redistribucion, $problema_resuelve,
+            $quien_realiza_actualmente, $funciones_principales, $riesgos_no_autorizacion, $impacto_kpis,
+            $escolaridad, $carrera, $experiencia, $conocimientos_tecnicos, $software_requerido,
+            $sueldo_mensual_propuesto, $accede_comisiones_bonos, $fecha_ideal_ingreso, $cuenta_estacion_trabajo, $equipo_requerido,
+            $id
+        ];
+
+        $types = '';
+        foreach ($params as $param) {
+            if (is_int($param)) {
+                $types .= 'i';
+            } elseif (is_float($param)) {
+                $types .= 'd';
+            } else {
+                $types .= 's';
+            }
+        }
+
+        $stmt = $conn->prepare($sql);
+        if (!$stmt) {
+            responder(false, 'Error al preparar la consulta de actualización: ' . $conn->error);
+        }
+
+        $stmt->bind_param($types, ...$params);
+        $ok = $stmt->execute();
+        $stmt->close();
+
+        if (!$ok) {
+            responder(false, 'No se pudo actualizar la solicitud.');
+        }
+
+        responder(true, 'La solicitud ha sido actualizada con éxito.');
+    }
+
+    // =========================================================================
+    // DICTAMINAR SOLICITUD DE PUESTO (GERENCIA / DIRECCIÓN / AUTORIZACIÓN ÚNICA)
+    // =========================================================================
+    case 'dictaminar_solicitud_posicion': {
+        $id          = (int)($_POST['id'] ?? 0);
+        $rol         = trim($_POST['rol'] ?? '');         // 'gerencia', 'direccion', 'unica'
+        $dictamen    = trim($_POST['dictamen'] ?? '');    // 'Aprobado', 'Rechazado'
+        $comentarios = trim($_POST['comentarios'] ?? '');
+
+        // noEmpleado desde la cookie o sesión
+        $noEmpActual = (int)($_COOKIE['noEmpleado'] ?? 0);
+
+        if ($id <= 0 || empty($rol) || empty($dictamen)) {
+            responder(false, 'Parámetros inválidos para procesar el dictamen.');
+        }
+
+        if (empty($comentarios)) {
+            responder(false, 'La retroalimentación es obligatoria.');
+        }
+
+        // 1. Consultar el estado actual de la solicitud
+        $stmt = $conn->prepare("SELECT id, nombre_puesto, estado_gerencia, estado_direccion FROM solicitudes_puesto WHERE id = ?");
+        $stmt->bind_param('i', $id);
+        $stmt->execute();
+        $solicitud = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        if (!$solicitud) {
+            responder(false, 'La solicitud especificada no existe.');
+        }
+
+        $estadoGerenciaFinal  = $solicitud['estado_gerencia'];
+        $estadoDireccionFinal = $solicitud['estado_direccion'];
+        $fechaAhora           = date('Y-m-d H:i:s');
+
+        // 2. Aplicar actualización según el rol de dictamen
+        if ($rol === 'unica') {
+            $estadoGerenciaFinal  = $dictamen;
+            $estadoDireccionFinal = $dictamen;
+            $estadoGeneralFinal   = ($dictamen === 'Aprobado') ? 'Aprobada' : 'Rechazada';
+
+            $sql = "UPDATE solicitudes_puesto SET 
+                    estado_gerencia = ?, usuario_gerencia = ?, fecha_aut_gerencia = ?, comentarios_gerencia = ?,
+                    estado_direccion = ?, usuario_direccion = ?, fecha_aut_direccion = ?, comentarios_direccion = ?,
+                    estado_general = ? WHERE id = ?";
+            
+            $stmt = $conn->prepare($sql);
+            $stmt->bind_param('sisssisssi', 
+                $dictamen, $noEmpActual, $fechaAhora, $comentarios,
+                $dictamen, $noEmpActual, $fechaAhora, $comentarios,
+                $estadoGeneralFinal, $id
+            );
+            $ok = $stmt->execute();
+            $stmt->close();
+
+        } elseif ($rol === 'gerencia') {
+            $estadoGerenciaFinal = $dictamen;
+            
+            // Si Gerencia Aprueba -> Pendiente Dirección. Si Gerencia Rechaza -> Rechazada totalmente.
+            if ($dictamen === 'Aprobado') {
+                $estadoGeneralFinal = ($solicitud['estado_direccion'] === 'Aprobado') ? 'Aprobada' : 'Pendiente Dirección';
+            } else {
+                $estadoGeneralFinal = 'Rechazada';
+            }
+
+            $sql = "UPDATE solicitudes_puesto SET 
+                    estado_gerencia = ?, usuario_gerencia = ?, fecha_aut_gerencia = ?, comentarios_gerencia = ?,
+                    estado_general = ? WHERE id = ?";
+            
+            $stmt = $conn->prepare($sql);
+            $stmt->bind_param('sisssi', $dictamen, $noEmpActual, $fechaAhora, $comentarios, $estadoGeneralFinal, $id);
+            $ok = $stmt->execute();
+            $stmt->close();
+
+        } elseif ($rol === 'direccion') {
+            $estadoDireccionFinal = $dictamen;
+            
+            // Si Dirección Aprueba -> Si Gerencia aprobó es 'Aprobada', si no sigue pendiente Gerencia.
+            if ($dictamen === 'Aprobado') {
+                $estadoGeneralFinal = ($solicitud['estado_gerencia'] === 'Aprobado') ? 'Aprobada' : 'Pendiente Gerencia';
+            } else {
+                $estadoGeneralFinal = 'Rechazada';
+            }
+
+            $sql = "UPDATE solicitudes_puesto SET 
+                    estado_direccion = ?, usuario_direccion = ?, fecha_aut_direccion = ?, comentarios_direccion = ?,
+                    estado_general = ? WHERE id = ?";
+            
+            $stmt = $conn->prepare($sql);
+            $stmt->bind_param('sisssi', $dictamen, $noEmpActual, $fechaAhora, $comentarios, $estadoGeneralFinal, $id);
+            $ok = $stmt->execute();
+            $stmt->close();
+        }
+
+        if (!$ok) {
+            responder(false, 'No se pudo registrar la actualización en la base de datos.');
+        }
+
+        // 3. REGLA FINAL: Si ambas autorizaciones están Aprobadas, insertar nuevo puesto en la tabla `mess_rrhh.puesto`
+        if ($estadoGerenciaFinal === 'Aprobado' && $estadoDireccionFinal === 'Aprobado') {
+            $nombrePuesto  = $solicitud['nombre_puesto'];
+            $estatusPuesto = 1; // 1 = Activo
+
+            // Verificar si el puesto ya existe previamente en mess_rrhh.puesto para evitar duplicados
+            $stmtCheck = $conn->prepare("SELECT id FROM mess_rrhh.puesto WHERE puesto = ?");
+            $stmtCheck->bind_param('s', $nombrePuesto);
+            $stmtCheck->execute();
+            $resCheck = $stmtCheck->get_result();
+
+            if ($resCheck->num_rows === 0) {
+                $stmtInsert = $conn->prepare("INSERT INTO mess_rrhh.puesto (puesto, estatus) VALUES (?, ?)");
+                $stmtInsert->bind_param('si', $nombrePuesto, $estatusPuesto);
+                $stmtInsert->execute();
+                $stmtInsert->close();
+            }
+            $stmtCheck->close();
+        }
+
+        responder(true, 'Dictamen registrado exitosamente.');
+    }
+
+    // =========================================================================
+    // OBTENER CATÁLOGOS ACTIVOS (ÁREAS Y SEDES)
+    // =========================================================================
+case 'obtener_catalogos_solicitud': {
+        // 1. Áreas (departamento)
+        $sqlAreas = "SELECT id, departamento FROM mess_rrhh.departamento WHERE estatus = 1 ORDER BY departamento ASC";
+        $resAreas = $conn->query($sqlAreas);
+        $areas = [];
+        if ($resAreas) {
+            while ($row = $resAreas->fetch_assoc()) {
+                $areas[] = [
+                    'id'           => (int)$row['id'],
+                    'departamento' => $row['departamento']
+                ];
+            }
+        }
+
+        // 2. Sedes (region)
+        $sqlSedes = "SELECT id, region FROM mess_rrhh.region WHERE estatus = 1 ORDER BY region ASC";
+        $resSedes = $conn->query($sqlSedes);
+        $sedes = [];
+        if ($resSedes) {
+            while ($row = $resSedes->fetch_assoc()) {
+                $sedes[] = [
+                    'id'     => (int)$row['id'],
+                    'region' => $row['region']
+                ];
+            }
+        }
+
+        // Garantizar el envío con 'data'
+        responder(true, 'Catálogos obtenidos', [
+            'areas' => $areas,
+            'sedes' => $sedes
+        ]);
+    }
+
     default:
         responder(false, 'Acción no reconocida.');
 }

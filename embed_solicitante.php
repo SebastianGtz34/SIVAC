@@ -32,12 +32,25 @@ $nombreSesion = $datosSesion['nombre'] ?? ('empleado #' . $noEmpSesion);
 </head>
 <body class="embed">
 <div class="container-fluid">
-    <div class="d-flex align-items-center justify-content-between mb-3">
-        <h5 class="mb-0"><i class="fas fa-briefcase mr-2 text-primary"></i>Mis vacantes</h5>
+    <div class="d-flex flex-column flex-sm-row align-items-sm-center justify-content-between pb-3 mb-4 border-bottom">
+        <div class="mb-2 mb-sm-0">
+            <h4 class="h5 font-weight-bold text-gray-800 mb-0 d-flex align-items-center">
+                <span class="icon-circle bg-primary-soft text-primary mr-2" style="width: 34px; height: 34px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.85rem; background-color: #eaecf4;">
+                    <i class="fas fa-briefcase"></i>
+                </span>
+                Mis Vacantes
+            </h4>            
+        </div>
+
         <?php if ($puedeSolicitar): ?>
-        <button class="btn btn-sm btn-primary" id="btnSolicitar">
-            <i class="fas fa-plus mr-1"></i>Solicitar Candidato
-        </button>
+        <div class="d-flex align-items-center">
+            <button type="button" class="btn btn-sm btn-outline-primary shadow-sm mr-2 font-weight-bold" id="btnNuevaSolicitudPuesto">
+                <i class="fas fa-plus-circle mr-1"></i> Nueva Solicitud de Puesto
+            </button>
+            <button type="button" class="btn btn-sm btn-primary shadow-sm font-weight-bold" id="btnSolicitar">
+                <i class="fas fa-user-plus mr-1"></i> Solicitar Candidato
+            </button>
+        </div>
         <?php endif; ?>
     </div>
     <div class="row" id="misVacantes"></div>
@@ -45,11 +58,13 @@ $nombreSesion = $datosSesion['nombre'] ?? ('empleado #' . $noEmpSesion);
     <h5 class="mt-4 mb-3"><i class="fas fa-user-clock mr-2 text-primary"></i>Candidatos por revisar</h5>
     <p class="text-muted small mb-3">Revisa, aprueba a los que te interesen o descártalos.</p>
     <div class="row" id="misCandidatos"></div>
+
+    <h5 class="mt-4 mb-3"><i class="fas fa-file-signature mr-2 text-primary"></i>Mis Solicitudes de Nueva Posición</h5>
+    <p class="text-muted small mb-3">Estado de autorizaciones por Gerencia y Dirección para creación de nuevos puestos.</p>
+    <div class="row" id="misSolicitudesPosicion"></div>
 </div>
 
 <?php if ($puedeSolicitar): ?>
-<!-- Modal: el jefe levanta su propia requisición. Nace 'pendiente_vobo' y no es
-     vacante hasta que RRHH le da el visto bueno. -->
 <div class="modal fade" id="modalSolicitar" tabindex="-1" role="dialog">
   <div class="modal-dialog modal-lg" role="document"><div class="modal-content">
     <form id="formSolicitar">
@@ -80,7 +95,6 @@ $nombreSesion = $datosSesion['nombre'] ?? ('empleado #' . $noEmpSesion);
             <input type="number" class="form-control" name="posiciones" id="sol_posiciones" min="1" value="1">
           </div>
         </div>
-        <!-- Sólo Temporal: duración + motivo (el toggle lo maneja el script de abajo). -->
         <div class="form-row" id="sol_temporal_fields" style="display:none">
           <div class="form-group col-md-4">
             <label>Duración (meses) *</label>
@@ -108,6 +122,650 @@ $nombreSesion = $datosSesion['nombre'] ?? ('empleado #' . $noEmpSesion);
     </form>
   </div></div>
 </div>
+
+
+<div class="modal fade" id="modalSolicitudPuesto" tabindex="-1" role="dialog" aria-labelledby="modalSolicitudLabel" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable" role="document">
+    <div class="modal-content border-0 shadow-lg">
+      
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title font-weight-bold" id="modalSolicitudLabel">
+          <i class="fas fa-file-alt mr-2"></i>Solicitud y Justificación de Nueva Posición
+        </h5>
+        <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+
+      <div class="modal-body bg-light">
+        <form id="formSolicitudPuesto">
+          <input type="hidden" name="fecha_solicitud" value="<?= date('Y-m-d') ?>">
+
+          <div class="card shadow mb-4 border-left-primary">
+            <div class="card-header py-3 bg-white">
+              <h6 class="m-0 font-weight-bold text-primary">
+                <i class="fas fa-id-card mr-2"></i>1. Información General y Esquema de Contratación
+              </h6>
+            </div>
+            <div class="card-body">
+              <div class="form-row">
+                <div class="form-group col-md-8">
+                  <label class="font-weight-bold text-dark small">Nombre del Puesto Nuevo <span class="text-danger">*</span></label>
+                  <input type="text" name="nombre_puesto" class="form-control" placeholder="Ej. Analista BI Senior" required>
+                </div>
+                <div class="form-group col-md-4">
+                  <label class="font-weight-bold text-dark small">Nº de Vacantes <span class="text-danger">*</span></label>
+                  <input type="number" name="numero_vacantes" class="form-control" min="1" value="1" required>
+                </div>
+              </div>
+
+              <div class="form-row">
+                                  <!-- Modal de Crear / Editar Solicitud -->
+                  <input type="hidden" id="jefe_solicitante" name="jefe_solicitante">
+
+                  <div class="form-group col-md-6">
+                      <label for="area">Área Solicitante *</label>
+                      <select class="form-control" id="area" name="area" required>
+                          <option value="">Selecciona un área...</option>
+                      </select>
+                  </div>
+
+                  <div class="form-group col-md-6">
+                      <label for="sede">Sede / Planta *</label>
+                      <select class="form-control" id="sede" name="sede" required>
+                          <option value="">Selecciona una sede...</option>
+                      </select>
+                  </div>
+              </div>
+
+              <hr class="sidebar-divider my-2">
+
+              <div class="form-row pt-2">
+                <div class="form-group col-md-6">
+                  <label class="font-weight-bold text-dark small">Tipo de Contratación <span class="text-danger">*</span></label>
+                  <select name="tipo_contratacion" id="tipoContratacion" class="form-control" required>
+                    <option value="">-- Seleccionar esquema --</option>
+                    <option value="Permanente">Permanente</option>
+                    <option value="Temporal">Temporal</option>
+                    <option value="Proyecto específico">Proyecto específico</option>
+                    <option value="Practicante">Practicante</option>
+                  </select>
+                </div>
+                <div class="form-group col-md-6 d-none" id="secTemporal">
+                  <label class="font-weight-bold text-dark small">Especificar duración o motivo temporal</label>
+                  <input type="text" name="especificacion_temporal" class="form-control" placeholder="Ej. 6 meses por incapacidad">
+                </div>
+              </div>
+
+              <div id="secProyectoPracticante" class="card border-left-secondary bg-light mt-2 d-none">
+                <div class="card-body">
+                  <h6 class="font-weight-bold text-secondary mb-3">
+                    <i class="fas fa-project-diagram mr-2"></i>a) Detalles del Proyecto / Practicante
+                  </h6>
+                  <div class="form-row">
+                    <div class="form-group col-md-6">
+                      <label class="font-weight-bold text-dark small">Nombre del Proyecto</label>
+                      <input type="text" name="proyecto_nombre" class="form-control">
+                    </div>
+                    <div class="form-group col-md-6">
+                      <label class="font-weight-bold text-dark small">Carrera(s) Afines</label>
+                      <input type="text" name="carreras_solicitadas" class="form-control">
+                    </div>
+                  </div>
+                  <div class="form-row">
+                    <div class="form-group col-md-6">
+                      <label class="font-weight-bold text-dark small">Objetivo del Proyecto</label>
+                      <textarea name="proyecto_objetivo" class="form-control" rows="2"></textarea>
+                    </div>
+                    <div class="form-group col-md-6">
+                      <label class="font-weight-bold text-dark small">Actividades del Practicante</label>
+                      <textarea name="practicante_actividades" class="form-control" rows="2"></textarea>
+                    </div>
+                  </div>
+                  <div class="form-row">
+                    <div class="form-group col-md-3">
+                      <label class="font-weight-bold text-dark small">Periodo Estimado</label>
+                      <input type="text" name="periodo_estimado" class="form-control" placeholder="Ej. 6 Meses">
+                    </div>
+                    <div class="form-group col-md-3">
+                      <label class="font-weight-bold text-dark small">Horario</label>
+                      <input type="text" name="horario_solicitado" class="form-control" placeholder="Ej. 08:00 - 14:00">
+                    </div>
+                    <div class="form-group col-md-3">
+                      <label class="font-weight-bold text-dark small">Horas Requeridas</label>
+                      <input type="number" name="horas_requeridas" class="form-control" placeholder="Total horas">
+                    </div>
+                    <div class="form-group col-md-3">
+                      <label class="font-weight-bold text-dark small">¿Posibilidad de Contratación?</label>
+                      <select name="posibilidad_contratacion" class="form-control">
+                        <option value="">Seleccionar...</option>
+                        <option value="Sí">Sí</option>
+                        <option value="No">No</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <div class="card shadow mb-4 border-left-warning">
+            <div class="card-header py-3 bg-white">
+              <h6 class="m-0 font-weight-bold text-warning">
+                <i class="fas fa-bullseye mr-2"></i>2. Justificación Operativa
+              </h6>
+            </div>
+            <div class="card-body">
+              <div class="form-row">
+                <div class="form-group col-md-6">
+                  <label class="font-weight-bold text-dark small">Origen de la Necesidad <span class="text-danger">*</span></label>
+                  <select name="motivo_necesidad" class="form-control" required>
+                    <option value="Crecimiento del área">Crecimiento del área</option>
+                    <option value="Proyecto nuevo">Proyecto nuevo</option>
+                    <option value="Incremento de carga de trabajo">Incremento de carga de trabajo</option>
+                    <option value="Cobertura temporal">Cobertura temporal</option>
+                    <option value="Otro">Otro</option>
+                  </select>
+                </div>
+                <div class="form-group col-md-6">
+                  <label class="font-weight-bold text-dark small">¿Se evaluó automatizar / redistribuir? <span class="text-danger">*</span></label>
+                  <select name="evaluo_redistribucion" class="form-control" required>
+                    <option value="Sí">Sí</option>
+                    <option value="No">No</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="font-weight-bold text-dark small">Explicación de por qué no es suficiente la redistribución</label>
+                <textarea name="justificacion_redistribucion" class="form-control" rows="2" placeholder="Detalla los motivos..."></textarea>
+              </div>
+              <div class="form-row">
+                <div class="form-group col-md-6">
+                  <label class="font-weight-bold text-dark small">Problema principal que resolverá <span class="text-danger">*</span></label>
+                  <select name="problema_resuelve" class="form-control" required>
+                    <option value="Incremento de ventas">Incremento de ventas</option>
+                    <option value="Reducción de tiempos">Reducción de tiempos</option>
+                    <option value="Cumplimiento normativo">Cumplimiento normativo</option>
+                    <option value="Atención a nuevos clientes">Atención a nuevos clientes</option>
+                    <option value="Disminución de carga de trabajo">Disminución de carga de trabajo</option>
+                    <option value="Desarrollo de nuevos proyectos">Desarrollo de nuevos proyectos</option>
+                    <option value="Otro">Otro</option>
+                  </select>
+                </div>
+                <div class="form-group col-md-6">
+                  <label class="font-weight-bold text-dark small">¿Quién realiza actualmente estas funciones? <span class="text-danger">*</span></label>
+                  <input type="text" name="quien_realiza_actualmente" class="form-control" required>
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="font-weight-bold text-dark small">Funciones Principales (5 a 8 actividades) <span class="text-danger">*</span></label>
+                <textarea name="funciones_principales" class="form-control" rows="3" placeholder="- Función 1&#10;- Función 2..." required></textarea>
+              </div>
+              <div class="form-row">
+                <div class="form-group col-md-6">
+                  <label class="font-weight-bold text-dark small">Riesgos de NO autorizar la posición <span class="text-danger">*</span></label>
+                  <textarea name="riesgos_no_autorizacion" class="form-control" rows="2" required></textarea>
+                </div>
+                <div class="form-group col-md-6">
+                  <label class="font-weight-bold text-dark small">KPIs / Indicadores de Éxito a 6 meses <span class="text-danger">*</span></label>
+                  <textarea name="impacto_kpis" class="form-control" rows="2" required></textarea>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card shadow mb-4 border-left-success">
+            <div class="card-header py-3 bg-white">
+              <h6 class="m-0 font-weight-bold text-success">
+                <i class="fas fa-user-graduate mr-2"></i>3. Perfil del Candidato
+              </h6>
+            </div>
+            <div class="card-body">
+              <div class="form-row">
+                <div class="form-group col-md-4">
+                  <label class="font-weight-bold text-dark small">Escolaridad Mínima <span class="text-danger">*</span></label>
+                  <input type="text" name="escolaridad" class="form-control" placeholder="Ej. Licenciatura / Ingeniería" required>
+                </div>
+                <div class="form-group col-md-4">
+                  <label class="font-weight-bold text-dark small">Carrera <span class="text-danger">*</span></label>
+                  <input type="text" name="carrera" class="form-control" placeholder="Ej. Sistemas, Industrial" required>
+                </div>
+                <div class="form-group col-md-4">
+                  <label class="font-weight-bold text-dark small">Experiencia Requerida <span class="text-danger">*</span></label>
+                  <input type="text" name="experiencia" class="form-control" placeholder="Ej. 2 años en puesto similar" required>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group col-md-6">
+                  <label class="font-weight-bold text-dark small">Conocimientos Técnicos <span class="text-danger">*</span></label>
+                  <textarea name="conocimientos_tecnicos" class="form-control" rows="2" required></textarea>
+                </div>
+                <div class="form-group col-md-6">
+                  <label class="font-weight-bold text-dark small">Software Especializado</label>
+                  <textarea name="software_requerido" class="form-control" rows="2" placeholder="Ej. Excel avanzado, Power BI, SQL"></textarea>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card shadow mb-4 border-left-dark">
+            <div class="card-header py-3 bg-white">
+              <h6 class="m-0 font-weight-bold text-dark">
+                <i class="fas fa-coins mr-2"></i>4. Presupuesto y Recursos
+              </h6>
+            </div>
+            <div class="card-body">
+              <div class="form-row">
+                <div class="form-group col-md-4">
+                  <label class="font-weight-bold text-dark small">Sueldo Mensual Propuesto (MXN) <span class="text-danger">*</span></label>
+                  <div class="input-group">
+                    <div class="input-group-prepend">
+                      <span class="input-group-text">$</span>
+                    </div>
+                    <input type="number" step="0.01" name="sueldo_mensual_propuesto" class="form-control" required>
+                  </div>
+                </div>
+                <div class="form-group col-md-4">
+                  <label class="font-weight-bold text-dark small">¿Accede a Comisiones / Bonos? <span class="text-danger">*</span></label>
+                  <select name="accede_comisiones_bonos" class="form-control" required>
+                    <option value="No">No</option>
+                    <option value="Sí">Sí</option>
+                  </select>
+                </div>
+                <div class="form-group col-md-4">
+                  <label class="font-weight-bold text-dark small">Fecha Ideal de Ingreso <span class="text-danger">*</span></label>
+                  <input type="date" name="fecha_ideal_ingreso" class="form-control" required>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group col-md-4">
+                  <label class="font-weight-bold text-dark small">¿Cuenta con estación de trabajo? <span class="text-danger">*</span></label>
+                  <select name="cuenta_estacion_trabajo" class="form-control" required>
+                    <option value="Sí">Sí</option>
+                    <option value="No">No</option>
+                  </select>
+                </div>
+                <div class="form-group col-md-8">
+                  <label class="font-weight-bold text-dark small d-block">Equipo e Insumos Requeridos</label>
+                  <div class="pt-1">
+                    <div class="custom-control custom-checkbox custom-control-inline">
+                      <input type="checkbox" class="custom-control-input" id="checkEpp" name="equipo_requerido[]" value="EPP">
+                      <label class="custom-control-label small" for="checkEpp"><i class="fas fa-hard-hat mr-1 text-secondary"></i> EPP</label>
+                    </div>
+                    <div class="custom-control custom-checkbox custom-control-inline">
+                      <input type="checkbox" class="custom-control-input" id="checkComp" name="equipo_requerido[]" value="Computadora">
+                      <label class="custom-control-label small" for="checkComp"><i class="fas fa-laptop mr-1 text-secondary"></i> Computadora</label>
+                    </div>
+                    <div class="custom-control custom-checkbox custom-control-inline">
+                      <input type="checkbox" class="custom-control-input" id="checkCel" name="equipo_requerido[]" value="Celular">
+                      <label class="custom-control-label small" for="checkCel"><i class="fas fa-mobile-alt mr-1 text-secondary"></i> Celular</label>
+                    </div>
+                    <div class="custom-control custom-checkbox custom-control-inline">
+                      <input type="checkbox" class="custom-control-input" id="checkAuto" name="equipo_requerido[]" value="Vehículo">
+                      <label class="custom-control-label small" for="checkAuto"><i class="fas fa-car mr-1 text-secondary"></i> Vehículo</label>
+                    </div>
+                    <div class="custom-control custom-checkbox custom-control-inline">
+                      <input type="checkbox" class="custom-control-input" id="checkHerr" name="equipo_requerido[]" value="Herramientas">
+                      <label class="custom-control-label small" for="checkHerr"><i class="fas fa-wrench mr-1 text-secondary"></i> Herramientas</label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </form>
+      </div>
+
+      <div class="modal-footer bg-white border-top-0">
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+        <button type="submit" form="formSolicitudPuesto" class="btn btn-primary btn-icon-split shadow-sm">
+          <span class="icon text-white-50">
+            <i class="fas fa-paper-plane"></i>
+          </span>
+          <span class="text">Enviar Solicitud</span>
+        </button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+
+<!-- Modal Detalle y Edición de Solicitud de Puesto -->
+<div class="modal fade" id="modalDetalleSolicitud" tabindex="-1" role="dialog" aria-labelledby="modalDetalleLabel" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable" role="document">
+    <div class="modal-content border-0 shadow-lg">
+      
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title font-weight-bold" id="modalDetalleLabel">
+          <i class="fas fa-file-alt mr-2"></i>Detalle de la Solicitud de Puesto
+        </h5>
+        <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+
+      <div class="modal-body bg-light">
+        <form id="formEditarSolicitudVacante">
+          <input type="hidden" name="id" id="edit_id">
+
+          <!-- Card 1: Información General y Esquema -->
+          <div class="card shadow mb-4 border-left-primary">
+            <div class="card-header py-3 bg-white">
+              <h6 class="m-0 font-weight-bold text-primary">
+                <i class="fas fa-id-card mr-2"></i>1. Información General y Esquema de Contratación
+              </h6>
+            </div>
+            <div class="card-body">
+              <div class="form-row">
+                <div class="form-group col-md-8">
+                  <label class="font-weight-bold text-dark small">Nombre del Puesto Nuevo <span class="text-danger">*</span></label>
+                  <input type="text" name="nombre_puesto" id="edit_nombre_puesto" class="form-control" required>
+                </div>
+                <div class="form-group col-md-4">
+                  <label class="font-weight-bold text-dark small">Nº de Vacantes <span class="text-danger">*</span></label>
+                  <input type="number" name="numero_vacantes" id="edit_numero_vacantes" class="form-control" min="1" required>
+                </div>
+              </div>
+
+              <div class="form-row">
+                <input type="hidden" id="jefe_solicitante" name="jefe_solicitante">
+
+                  <!-- Dentro de #modalDetalleSolicitud -->
+<div class="form-group col-md-6">
+    <label for="edit_area">Área Solicitante *</label>
+    <select class="form-control" id="edit_area" name="area" required>
+        <option value="">Selecciona un área...</option>
+    </select>
+</div>
+
+<div class="form-group col-md-6">
+    <label for="edit_sede">Sede / Planta *</label>
+    <select class="form-control" id="edit_sede" name="sede" required>
+        <option value="">Selecciona una sede...</option>
+    </select>
+</div>
+              </div>
+
+              <hr class="sidebar-divider my-2">
+
+              <div class="form-row pt-2">
+                <div class="form-group col-md-6">
+                  <label class="font-weight-bold text-dark small">Tipo de Contratación <span class="text-danger">*</span></label>
+                  <select name="tipo_contratacion" id="edit_tipoContratacion" class="form-control" required>
+                    <option value="Permanente">Permanente</option>
+                    <option value="Temporal">Temporal</option>
+                    <option value="Proyecto específico">Proyecto específico</option>
+                    <option value="Practicante">Practicante</option>
+                  </select>
+                </div>
+                <div class="form-group col-md-6 d-none" id="edit_secTemporal">
+                  <label class="font-weight-bold text-dark small">Especificar duración o motivo temporal</label>
+                  <input type="text" name="especificacion_temporal" id="edit_especificacion_temporal" class="form-control">
+                </div>
+              </div>
+
+              <div id="edit_secProyectoPracticante" class="card border-left-secondary bg-light mt-2 d-none">
+                <div class="card-body">
+                  <h6 class="font-weight-bold text-secondary mb-3">
+                    <i class="fas fa-project-diagram mr-2"></i>a) Detalles del Proyecto / Practicante
+                  </h6>
+                  <div class="form-row">
+                    <div class="form-group col-md-6">
+                      <label class="font-weight-bold text-dark small">Nombre del Proyecto</label>
+                      <input type="text" name="proyecto_nombre" id="edit_proyecto_nombre" class="form-control">
+                    </div>
+                    <div class="form-group col-md-6">
+                      <label class="font-weight-bold text-dark small">Carrera(s) Afines</label>
+                      <input type="text" name="carreras_solicitadas" id="edit_carreras_solicitadas" class="form-control">
+                    </div>
+                  </div>
+                  <div class="form-row">
+                    <div class="form-group col-md-6">
+                      <label class="font-weight-bold text-dark small">Objetivo del Proyecto</label>
+                      <textarea name="proyecto_objetivo" id="edit_proyecto_objetivo" class="form-control" rows="2"></textarea>
+                    </div>
+                    <div class="form-group col-md-6">
+                      <label class="font-weight-bold text-dark small">Actividades del Practicante</label>
+                      <textarea name="practicante_actividades" id="edit_practicante_actividades" class="form-control" rows="2"></textarea>
+                    </div>
+                  </div>
+                  <div class="form-row">
+                    <div class="form-group col-md-3">
+                      <label class="font-weight-bold text-dark small">Periodo Estimado</label>
+                      <input type="text" name="periodo_estimado" id="edit_periodo_estimado" class="form-control">
+                    </div>
+                    <div class="form-group col-md-3">
+                      <label class="font-weight-bold text-dark small">Horario</label>
+                      <input type="text" name="horario_solicitado" id="edit_horario_solicitado" class="form-control">
+                    </div>
+                    <div class="form-group col-md-3">
+                      <label class="font-weight-bold text-dark small">Horas Requeridas</label>
+                      <input type="number" name="horas_requeridas" id="edit_horas_requeridas" class="form-control">
+                    </div>
+                    <div class="form-group col-md-3">
+                      <label class="font-weight-bold text-dark small">¿Posibilidad de Contratación?</label>
+                      <select name="posibilidad_contratacion" id="edit_posibilidad_contratacion" class="form-control">
+                        <option value="">Seleccionar...</option>
+                        <option value="Sí">Sí</option>
+                        <option value="No">No</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- Card 2: Justificación Operativa -->
+          <div class="card shadow mb-4 border-left-warning">
+            <div class="card-header py-3 bg-white">
+              <h6 class="m-0 font-weight-bold text-warning">
+                <i class="fas fa-bullseye mr-2"></i>2. Justificación Operativa
+              </h6>
+            </div>
+            <div class="card-body">
+              <div class="form-row">
+                <div class="form-group col-md-6">
+                  <label class="font-weight-bold text-dark small">Origen de la Necesidad <span class="text-danger">*</span></label>
+                  <select name="motivo_necesidad" id="edit_motivo_necesidad" class="form-control" required>
+                    <option value="Crecimiento del área">Crecimiento del área</option>
+                    <option value="Proyecto nuevo">Proyecto nuevo</option>
+                    <option value="Incremento de carga de trabajo">Incremento de carga de trabajo</option>
+                    <option value="Cobertura temporal">Cobertura temporal</option>
+                    <option value="Otro">Otro</option>
+                  </select>
+                </div>
+                <div class="form-group col-md-6">
+                  <label class="font-weight-bold text-dark small">¿Se evaluó automatizar / redistribuir? <span class="text-danger">*</span></label>
+                  <select name="evaluo_redistribucion" id="edit_evaluo_redistribucion" class="form-control" required>
+                    <option value="Sí">Sí</option>
+                    <option value="No">No</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="font-weight-bold text-dark small">Explicación de por qué no es suficiente la redistribución</label>
+                <textarea name="justificacion_redistribucion" id="edit_justificacion_redistribucion" class="form-control" rows="2"></textarea>
+              </div>
+              <div class="form-row">
+                <div class="form-group col-md-6">
+                  <label class="font-weight-bold text-dark small">Problema principal que resolverá <span class="text-danger">*</span></label>
+                  <select name="problema_resuelve" id="edit_problema_resuelve" class="form-control" required>
+                    <option value="Incremento de ventas">Incremento de ventas</option>
+                    <option value="Reducción de tiempos">Reducción de tiempos</option>
+                    <option value="Cumplimiento normativo">Cumplimiento normativo</option>
+                    <option value="Atención a nuevos clientes">Atención a nuevos clientes</option>
+                    <option value="Disminución de carga de trabajo">Disminución de carga de trabajo</option>
+                    <option value="Desarrollo de nuevos proyectos">Desarrollo de nuevos proyectos</option>
+                    <option value="Otro">Otro</option>
+                  </select>
+                </div>
+                <div class="form-group col-md-6">
+                  <label class="font-weight-bold text-dark small">¿Quién realiza actualmente estas funciones? <span class="text-danger">*</span></label>
+                  <input type="text" name="quien_realiza_actualmente" id="edit_quien_realiza_actualmente" class="form-control" required>
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="font-weight-bold text-dark small">Funciones Principales (5 a 8 actividades) <span class="text-danger">*</span></label>
+                <textarea name="funciones_principales" id="edit_funciones_principales" class="form-control" rows="3" required></textarea>
+              </div>
+              <div class="form-row">
+                <div class="form-group col-md-6">
+                  <label class="font-weight-bold text-dark small">Riesgos de NO autorizar la posición <span class="text-danger">*</span></label>
+                  <textarea name="riesgos_no_autorizacion" id="edit_riesgos_no_autorizacion" class="form-control" rows="2" required></textarea>
+                </div>
+                <div class="form-group col-md-6">
+                  <label class="font-weight-bold text-dark small">KPIs / Indicadores de Éxito a 6 meses <span class="text-danger">*</span></label>
+                  <textarea name="impacto_kpis" id="edit_impacto_kpis" class="form-control" rows="2" required></textarea>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card 3: Perfil Requerido -->
+          <div class="card shadow mb-4 border-left-success">
+            <div class="card-header py-3 bg-white">
+              <h6 class="m-0 font-weight-bold text-success">
+                <i class="fas fa-user-graduate mr-2"></i>3. Perfil del Candidato
+              </h6>
+            </div>
+            <div class="card-body">
+              <div class="form-row">
+                <div class="form-group col-md-4">
+                  <label class="font-weight-bold text-dark small">Escolaridad Mínima <span class="text-danger">*</span></label>
+                  <input type="text" name="escolaridad" id="edit_escolaridad" class="form-control" required>
+                </div>
+                <div class="form-group col-md-4">
+                  <label class="font-weight-bold text-dark small">Carrera <span class="text-danger">*</span></label>
+                  <input type="text" name="carrera" id="edit_carrera" class="form-control" required>
+                </div>
+                <div class="form-group col-md-4">
+                  <label class="font-weight-bold text-dark small">Experiencia Requerida <span class="text-danger">*</span></label>
+                  <input type="text" name="experiencia" id="edit_experiencia" class="form-control" required>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group col-md-6">
+                  <label class="font-weight-bold text-dark small">Conocimientos Técnicos <span class="text-danger">*</span></label>
+                  <textarea name="conocimientos_tecnicos" id="edit_conocimientos_tecnicos" class="form-control" rows="2" required></textarea>
+                </div>
+                <div class="form-group col-md-6">
+                  <label class="font-weight-bold text-dark small">Software Especializado</label>
+                  <textarea name="software_requerido" id="edit_software_requerido" class="form-control" rows="2"></textarea>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card 4: Presupuesto & Recursos -->
+          <div class="card shadow mb-4 border-left-dark">
+            <div class="card-header py-3 bg-white">
+              <h6 class="m-0 font-weight-bold text-dark">
+                <i class="fas fa-coins mr-2"></i>4. Presupuesto y Recursos
+              </h6>
+            </div>
+            <div class="card-body">
+              <div class="form-row">
+                <div class="form-group col-md-4">
+                  <label class="font-weight-bold text-dark small">Sueldo Mensual Propuesto (MXN) <span class="text-danger">*</span></label>
+                  <div class="input-group">
+                    <div class="input-group-prepend">
+                      <span class="input-group-text">$</span>
+                    </div>
+                    <input type="number" step="0.01" name="sueldo_mensual_propuesto" id="edit_sueldo_mensual_propuesto" class="form-control" required>
+                  </div>
+                </div>
+                <div class="form-group col-md-4">
+                  <label class="font-weight-bold text-dark small">¿Accede a Comisiones / Bonos? <span class="text-danger">*</span></label>
+                  <select name="accede_comisiones_bonos" id="edit_accede_comisiones_bonos" class="form-control" required>
+                    <option value="No">No</option>
+                    <option value="Sí">Sí</option>
+                  </select>
+                </div>
+                <div class="form-group col-md-4">
+                  <label class="font-weight-bold text-dark small">Fecha Ideal de Ingreso <span class="text-danger">*</span></label>
+                  <input type="date" name="fecha_ideal_ingreso" id="edit_fecha_ideal_ingreso" class="form-control" required>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group col-md-4">
+                  <label class="font-weight-bold text-dark small">¿Cuenta con estación de trabajo? <span class="text-danger">*</span></label>
+                  <select name="cuenta_estacion_trabajo" id="edit_cuenta_estacion_trabajo" class="form-control" required>
+                    <option value="Sí">Sí</option>
+                    <option value="No">No</option>
+                  </select>
+                </div>
+                <div class="form-group col-md-8">
+                  <label class="font-weight-bold text-dark small d-block">Equipo e Insumos Requeridos</label>
+                  <div class="pt-1">
+                    <div class="custom-control custom-checkbox custom-control-inline">
+                      <input type="checkbox" class="custom-control-input edit-equipo" id="edit_checkEpp" name="equipo_requerido[]" value="EPP">
+                      <label class="custom-control-label small" for="edit_checkEpp"><i class="fas fa-hard-hat mr-1 text-secondary"></i> EPP</label>
+                    </div>
+                    <div class="custom-control custom-checkbox custom-control-inline">
+                      <input type="checkbox" class="custom-control-input edit-equipo" id="edit_checkComp" name="equipo_requerido[]" value="Computadora">
+                      <label class="custom-control-label small" for="edit_checkComp"><i class="fas fa-laptop mr-1 text-secondary"></i> Computadora</label>
+                    </div>
+                    <div class="custom-control custom-checkbox custom-control-inline">
+                      <input type="checkbox" class="custom-control-input edit-equipo" id="edit_checkCel" name="equipo_requerido[]" value="Celular">
+                      <label class="custom-control-label small" for="edit_checkCel"><i class="fas fa-mobile-alt mr-1 text-secondary"></i> Celular</label>
+                    </div>
+                    <div class="custom-control custom-checkbox custom-control-inline">
+                      <input type="checkbox" class="custom-control-input edit-equipo" id="edit_checkAuto" name="equipo_requerido[]" value="Vehículo">
+                      <label class="custom-control-label small" for="edit_checkAuto"><i class="fas fa-car mr-1 text-secondary"></i> Vehículo</label>
+                    </div>
+                    <div class="custom-control custom-checkbox custom-control-inline">
+                      <input type="checkbox" class="custom-control-input edit-equipo" id="edit_checkHerr" name="equipo_requerido[]" value="Herramientas">
+                      <label class="custom-control-label small" for="edit_checkHerr"><i class="fas fa-wrench mr-1 text-secondary"></i> Herramientas</label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </form>
+      </div>
+
+      <div class="modal-footer bg-white border-top-0">
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cerrar</button>
+        <button type="submit" id="btnGuardarEdicion" form="formEditarSolicitudVacante" class="btn btn-success btn-icon-split shadow-sm">
+          <span class="icon text-white-50">
+            <i class="fas fa-save"></i>
+          </span>
+          <span class="text">Guardar Cambios</span>
+        </button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+
+<script>
+  // Control de visibilidad de secciones dinámicas
+  document.getElementById('tipoContratacion').addEventListener('change', function() {
+    const secProyecto = document.getElementById('secProyectoPracticante');
+    const secTemporal = document.getElementById('secTemporal');
+    
+    if (this.value === 'Proyecto específico' || this.value === 'Practicante') {
+      secProyecto.classList.remove('d-none');
+    } else {
+      secProyecto.classList.add('d-none');
+    }
+
+    if (this.value === 'Temporal') {
+      secTemporal.classList.remove('d-none');
+    } else {
+      secTemporal.classList.add('d-none');
+    }
+  });
+</script>
+
 <?php endif; ?>
 
 <script src="vendor/jquery/jquery.min.js"></script>
@@ -365,6 +1023,19 @@ $(function () {
             });
         });
 
+        // Al dar clic en el botón de "Nueva Solicitud de Puesto"
+        $('#btnNuevaSolicitudPuesto').on('click', function () {
+            var noEmpActual = getCookie('noEmpleado');
+            
+            // Asignar el jefe solicitante automáticamente desde la cookie
+            $('#jefe_solicitante').val(noEmpActual);
+
+            // Cargar los catálogos y abrir el modal
+            cargarCatalogosSolicitud(function () {
+                $('#modalSolicitudPuesto').modal('show');
+            });
+        })
+
         $('#formSolicitar').on('submit', function (e) {
             e.preventDefault();
             var data = $(this).serializeArray();
@@ -434,6 +1105,7 @@ $(function () {
             });
         });
     });
+
     $('#misCandidatos').on('click', '.btnResultadoNo', function () {
         var id = $(this).data('id');
         Swal.fire({
@@ -452,8 +1124,364 @@ $(function () {
         });
     });
 
+    // - Form Submit para el Modal de Nueva Posición ──
+    $('#formSolicitudPuesto').on('submit', function (e) {
+        e.preventDefault();
+        var data = $(this).serializeArray();
+        data.push({ name: 'accion', value: 'crear_solicitud_posicion' });
+
+        ajaxPost('acciones_solicitante.php', data, function (err, res) {
+            if (res && res.success) {
+                $('#modalSolicitudPuesto').modal('hide');
+                $('#formSolicitudPuesto')[0].reset();
+                
+                // Ocultar bloques dinámicos al limpiar el formulario
+                $('#secProyectoPracticante, #secTemporal').addClass('d-none');
+
+                mostrarToast(res.message || 'Solicitud registrada correctamente.', 'success');
+                cargarSolicitudesPosicion();
+            } else {
+                mostrarToast((res && res.message) || 'No se pudo registrar la solicitud.', 'error');
+            }
+        });
+    });
+    
+// ── Cargar Tarjetas de Solicitud de Puesto ──
+    function cargarSolicitudesPosicion() {
+        ajaxPost('acciones_solicitante.php', { accion: 'mis_solicitudes_posicion' }, function (err, res) {
+            var $c = $('#misSolicitudesPosicion').empty();
+            var listado = (res && res.data) ? res.data : (res ? Object.keys(res).filter(k => !isNaN(k)).map(k => res[k]) : []);
+
+            if (err || !res || !res.success || !listado.length) {
+                $c.html('<div class="col-12 text-center text-muted py-4 small"><i class="fas fa-folder-open mr-2"></i>No tienes solicitudes de creación de puesto registradas.</div>');
+                return;
+            }
+
+            var noEmpActual = parseInt(getCookie('noEmpleado') || 0, 10);
+
+            listado.forEach(function (s) {
+                // 1. Definición de variables numéricas y roles desde el inicio
+                var jefeSolicitante = parseInt(s.jefe_solicitante || 0, 10);
+                var jefeInmediato   = parseInt(s.noEmpleado_J || 0, 10);
+
+                var esElQueCapturo    = (jefeSolicitante === noEmpActual);
+                var esGerenciaDirecta = (jefeInmediato === noEmpActual);
+                var esDireccion       = (noEmpActual === 19 || noEmpActual === 403);
+                var esJefeDireccion   = (jefeInmediato === 19 || jefeInmediato === 403);
+
+                // 2. Condición de Edición
+                var sinDictaminarAun = (s.estado_gerencia === 'Pendiente' && s.estado_direccion === 'Pendiente');
+                var btnEditar = (esElQueCapturo && sinDictaminarAun)
+                    ? '<button class="btn btn-sm btn-link text-primary p-0 font-weight-bold btnEditarSolicitud" data-id="' + s.id + '"><i class="fas fa-edit mr-1"></i>Editar</button>'
+                    : '';
+
+                // Badges de estado
+                var badgeGerencia = s.estado_gerencia === 'Aprobado' 
+                    ? '<span class="badge badge-success px-2 py-1"><i class="fas fa-check mr-1"></i>Gerencia</span>' 
+                    : (s.estado_gerencia === 'Rechazado' 
+                        ? '<span class="badge badge-danger px-2 py-1"><i class="fas fa-times mr-1"></i>Gerencia</span>' 
+                        : '<span class="badge badge-warning px-2 py-1"><i class="fas fa-clock mr-1"></i>Gerencia</span>');
+
+                var badgeDireccion = s.estado_direccion === 'Aprobado' 
+                    ? '<span class="badge badge-success px-2 py-1"><i class="fas fa-check mr-1"></i>Dirección</span>' 
+                    : (s.estado_direccion === 'Rechazado' 
+                        ? '<span class="badge badge-danger px-2 py-1"><i class="fas fa-times mr-1"></i>Dirección</span>' 
+                        : '<span class="badge badge-warning px-2 py-1"><i class="fas fa-clock mr-1"></i>Dirección</span>');
+
+                var borderClass = 'border-left-warning';
+                if (s.estado_general === 'Aprobada') borderClass = 'border-left-success';
+                if (s.estado_general === 'Rechazada') borderClass = 'border-left-danger';
+
+                var fechaFormateada = s.fecha_solicitud ? s.fecha_solicitud : '';
+
+                // 3. Botones de dictamen según el rol
+                var btnsAutorizacion = '';
+                if (s.estado_general !== 'Aprobada' && s.estado_general !== 'Rechazada') {
+                    if ((esGerenciaDirecta && esJefeDireccion) || (esDireccion && jefeSolicitante === noEmpActual)) {
+                        if (s.estado_gerencia === 'Pendiente' || s.estado_direccion === 'Pendiente') {
+                            btnsAutorizacion = '<button class="btn btn-xs btn-success mr-1 px-2 py-1 btnDictaminar" data-id="' + s.id + '" data-rol="unica" data-accion="Aprobado"><i class="fas fa-check-double mr-1"></i>Autorizar Única</button>' +
+                                               '<button class="btn btn-xs btn-outline-danger px-2 py-1 btnDictaminar" data-id="' + s.id + '" data-rol="unica" data-accion="Rechazado"><i class="fas fa-times mr-1"></i>Rechazar</button>';
+                        }
+                    } 
+                    else if (esGerenciaDirecta && s.estado_gerencia === 'Pendiente') {
+                        btnsAutorizacion = '<button class="btn btn-xs btn-success mr-1 px-2 py-1 btnDictaminar" data-id="' + s.id + '" data-rol="gerencia" data-accion="Aprobado"><i class="fas fa-check mr-1"></i>Autorizar Gerencia</button>' +
+                                           '<button class="btn btn-xs btn-outline-danger px-2 py-1 btnDictaminar" data-id="' + s.id + '" data-rol="gerencia" data-accion="Rechazado"><i class="fas fa-times mr-1"></i>Rechazar Gerencia</button>';
+                    } 
+                    else if (esDireccion && s.estado_direccion === 'Pendiente') {
+                        btnsAutorizacion = '<button class="btn btn-xs btn-success mr-1 px-2 py-1 btnDictaminar" data-id="' + s.id + '" data-rol="direccion" data-accion="Aprobado"><i class="fas fa-check mr-1"></i>Autorizar Dirección</button>' +
+                                           '<button class="btn btn-xs btn-outline-danger px-2 py-1 btnDictaminar" data-id="' + s.id + '" data-rol="direccion" data-accion="Rechazado"><i class="fas fa-times mr-1"></i>Rechazar Dirección</button>';
+                    }
+                }
+
+                var nombreSolicitante = (s.nombres || '') + ' ' + (s.apellidos || '');
+
+                $c.append(
+                    '<div class="col-xl-4 col-md-6 mb-3">' +
+                        '<div class="card h-100 shadow-sm ' + borderClass + ' mb-0">' +
+                            '<div class="card-body p-3 d-flex flex-column">' +
+                                
+                                '<div class="d-flex justify-content-between align-items-start mb-1">' +
+                                    '<h6 class="font-weight-bold text-dark mb-0 text-truncate mr-2" style="max-width: 75%;" title="' + escHtml(s.nombre_puesto) + '">' +
+                                        escHtml(s.nombre_puesto) +
+                                    '</h6>' +
+                                    '<span class="badge badge-secondary" style="font-size: 0.7rem;">' + escHtml(s.tipo_contratacion) + '</span>' +
+                                '</div>' +
+
+                                '<div class="small text-muted mb-2">' +
+                                    '<i class="fas fa-user-circle mr-1 text-primary"></i><strong class="text-dark">' + escHtml(nombreSolicitante) + '</strong>' +
+                                    '<div class="mt-1" style="font-size: 0.75rem;">' +
+                                        '<i class="far fa-calendar-alt mr-1"></i>' + escHtml(fechaFormateada) + ' · <i class="fas fa-users mr-1"></i>Vacantes: ' + s.numero_vacantes +
+                                    '</div>' +
+                                '</div>' +
+
+                                '<div class="d-flex justify-content-between align-items-center mb-2 pt-1 border-top" style="font-size: 0.75rem;">' +
+                                    '<span class="text-muted font-weight-bold">Autorizaciones:</span>' +
+                                    '<div>' + badgeGerencia + ' ' + badgeDireccion + '</div>' +
+                                '</div>' +
+
+                                '<!-- Comentarios con etiquetas completas -->' +
+                                (s.comentarios_gerencia || s.comentarios_direccion ? 
+                                    '<div class="small text-muted mb-2 border-top pt-1 text-break" style="font-size: 0.75rem; line-height: 1.3;">' +
+                                        (s.comentarios_gerencia ? '<div class="mb-1"><strong class="text-dark">Gerencia:</strong> ' + escHtml(s.comentarios_gerencia) + '</div>' : '') +
+                                        (s.comentarios_direccion ? '<div><strong class="text-dark">Dirección:</strong> ' + escHtml(s.comentarios_direccion) + '</div>' : '') +
+                                    '</div>' : '') +
+
+                                (btnsAutorizacion ? '<div class="py-1 mb-2 text-center bg-light rounded">' + btnsAutorizacion + '</div>' : '') +
+
+                                '<div class="mt-auto pt-2 border-top d-flex justify-content-between align-items-center small">' +
+                                    '<button class="btn btn-sm btn-link text-info p-0 font-weight-bold btnVerDetalleSolicitud" data-id="' + s.id + '">' +
+                                        '<i class="fas fa-eye mr-1"></i>Ver solicitud' +
+                                    '</button>' +
+                                    btnEditar +
+                                '</div>' +
+
+                            '</div>' +
+                        '</div>' +
+                    '</div>'
+                );
+            });
+        });
+    }
+
+    // Toggle dinámico de secciones según tipo de contratación
+    document.getElementById('edit_tipoContratacion').addEventListener('change', function() {
+        const secProyecto = document.getElementById('edit_secProyectoPracticante');
+        const secTemporal = document.getElementById('edit_secTemporal');
+        
+        if (this.value === 'Proyecto específico' || this.value === 'Practicante') {
+            secProyecto.classList.remove('d-none');
+        } else {
+            secProyecto.classList.add('d-none');
+        }
+
+        if (this.value === 'Temporal') {
+            secTemporal.classList.remove('d-none');
+        } else {
+            secTemporal.classList.add('d-none');
+        }
+    });
+
+    // Abrir Modal en Lectura
+    $('#misSolicitudesPosicion').on('click', '.btnVerDetalleSolicitud', function() {
+        var id = $(this).data('id');
+        cargarDetalleModal(id, true);
+    });
+
+    // Abrir Modal en Edición
+    $('#misSolicitudesPosicion').on('click', '.btnEditarSolicitud', function() {
+        var id = $(this).data('id');
+        cargarDetalleModal(id, false);
+    });
+
+    function cargarDetalleModal(id, soloLectura) {
+        // 1. Obtener la información de la solicitud desde la BD
+        ajaxPost('acciones_solicitante.php', { accion: 'obtener_solicitud_posicion', id: id }, function (err, res) {
+            var d = (res && res.data) ? res.data : (res && res.id ? res : null);
+
+            if (err || !res || !res.success || !d) {
+                mostrarToast('No se pudo cargar la información de la solicitud.', 'error');
+                return;
+            }
+
+            // 2. PRIMERO cargar catálogos y poblar el DOM con las <option>
+            cargarCatalogosSolicitud(function () {
+
+                // 3. HASTA QUE YA EXISTAN LAS OPCIONES, asignar los valores a los selects
+                $('#edit_area').val(String(d.id_area || d.area || '')).trigger('change');
+                $('#edit_sede').val(String(d.id_sede || d.sede || '')).trigger('change');
+
+                // Asignar resto de campos de texto e identificadores
+                $('#edit_id').val(d.id);
+                $('#edit_jefe_solicitante').val(d.jefe_solicitante);
+
+                $('#edit_nombre_puesto').val(d.nombre_puesto);
+                $('#edit_numero_vacantes').val(d.numero_vacantes);
+                $('#edit_tipoContratacion').val(d.tipo_contratacion).trigger('change');
+                $('#edit_especificacion_temporal').val(d.especificacion_temporal);
+
+                // Campos de proyecto / practicante
+                $('#edit_proyecto_nombre').val(d.proyecto_nombre);
+                $('#edit_carreras_solicitadas').val(d.carreras_solicitadas);
+                $('#edit_proyecto_objetivo').val(d.proyecto_objetivo);
+                $('#edit_practicante_actividades').val(d.practicante_actividades);
+                $('#edit_periodo_estimado').val(d.periodo_estimado);
+                $('#edit_horario_solicitado').val(d.horario_solicitado);
+                $('#edit_horas_requeridas').val(d.horas_requeridas);
+                $('#edit_posibilidad_contratacion').val(d.posibilidad_contratacion);
+
+                // Justificación y perfil
+                $('#edit_motivo_necesidad').val(d.motivo_necesidad);
+                $('#edit_evaluo_redistribucion').val(d.evaluo_redistribucion);
+                $('#edit_justificacion_redistribucion').val(d.justificacion_redistribucion);
+                $('#edit_problema_resuelve').val(d.problema_resuelve);
+                $('#edit_quien_realiza_actualmente').val(d.quien_realiza_actualmente);
+                $('#edit_funciones_principales').val(d.funciones_principales);
+                $('#edit_riesgos_no_autorizacion').val(d.riesgos_no_autorizacion);
+                $('#edit_impacto_kpis').val(d.impacto_kpis);
+
+                $('#edit_escolaridad').val(d.escolaridad);
+                $('#edit_carrera').val(d.carrera);
+                $('#edit_experiencia').val(d.experiencia);
+                $('#edit_conocimientos_tecnicos').val(d.conocimientos_tecnicos);
+                $('#edit_software_requerido').val(d.software_requerido);
+
+                $('#edit_sueldo_mensual_propuesto').val(d.sueldo_mensual_propuesto);
+                $('#edit_accede_comisiones_bonos').val(d.accede_comisiones_bonos);
+                $('#edit_fecha_ideal_ingreso').val(d.fecha_ideal_ingreso);
+                $('#edit_cuenta_estacion_trabajo').val(d.cuenta_estacion_trabajo);
+
+                // Checkboxes de equipo
+                $('.edit-equipo').prop('checked', false);
+                if (d.equipo_requerido) {
+                    var equipos = d.equipo_requerido.split(',');
+                    equipos.forEach(function (eq) {
+                        $('.edit-equipo[value="' + eq.trim() + '"]').prop('checked', true);
+                    });
+                }
+
+                // Habilitar / Deshabilitar según si es Ver Solicitud (Solo Lectura) o Editar
+                $('#formEditarSolicitudVacante input, #formEditarSolicitudVacante select, #formEditarSolicitudVacante textarea')
+                    .prop('disabled', soloLectura);
+                
+                $('#edit_jefe_solicitante').prop('disabled', true);
+
+                if (soloLectura) {
+                    $('#modalDetalleLabel').html('<i class="fas fa-eye mr-2"></i>Detalle de la Solicitud (Solo Lectura)');
+                    $('#btnGuardarEdicion').hide();
+                } else {
+                    $('#modalDetalleLabel').html('<i class="fas fa-edit mr-2"></i>Editar Solicitud de Puesto');
+                    $('#btnGuardarEdicion').show();
+                }
+
+                // Abrir Modal
+                $('#modalDetalleSolicitud').modal('show');
+            });
+        });
+    }
+
+    // Submit de Actualización
+    $('#formEditarSolicitudVacante').on('submit', function (e) {
+        e.preventDefault();
+        var data = $(this).serializeArray();
+        data.push({ name: 'accion', value: 'actualizar_solicitud_posicion' });
+
+        ajaxPost('acciones_solicitante.php', data, function (err, res) {
+            if (res && res.success) {
+                $('#modalDetalleSolicitud').modal('hide');
+                mostrarToast(res.message || 'Solicitud actualizada correctamente.', 'success');
+                cargarSolicitudesPosicion();
+            } else {
+                mostrarToast((res && res.message) || 'No se pudo actualizar la solicitud.', 'error');
+            }
+        });
+    });
+
+    // Listener para los botones de Autorizar / Rechazar
+    $('#misSolicitudesPosicion').on('click', '.btnDictaminar', function () {
+        var id = $(this).data('id');
+        var rol = $(this).data('rol'); // 'gerencia', 'direccion', o 'unica'
+        var dictamen = $(this).data('accion'); // 'Aprobado' o 'Rechazado'
+
+        var titulo = (dictamen === 'Aprobado' ? 'Autorizar' : 'Rechazar') + ' Solicitud';
+        var colorBoton = (dictamen === 'Aprobado' ? '#1cc88a' : '#e74a3b');
+
+        Swal.fire({
+            title: titulo,
+            text: 'Por favor ingresa un comentario o retroalimentación:',
+            input: 'textarea',
+            inputPlaceholder: 'Escribe aquí la retroalimentación...',
+            inputAttributes: { 'aria-label': 'Retroalimentación' },
+            showCancelButton: true,
+            confirmButtonColor: colorBoton,
+            confirmButtonText: 'Confirmar',
+            cancelButtonText: 'Cancelar',
+            inputValidator: (value) => {
+                if (!value || !value.trim()) {
+                    return '¡Debes ingresar una retroalimentación obligatoria!';
+                }
+            }
+        }).then((result) => {
+            if (result.isConfirmed) {
+                var comentarios = result.value.trim();
+                ajaxPost('acciones_solicitante.php', {
+                    accion: 'dictaminar_solicitud_posicion',
+                    id: id,
+                    rol: rol,
+                    dictamen: dictamen,
+                    comentarios: comentarios
+                }, function (err, res) {
+                    if (res && res.success) {
+                        mostrarToast(res.message || 'Dictamen registrado con éxito.', 'success');
+                        cargarSolicitudesPosicion();
+                    } else {
+                        mostrarToast((res && res.message) || 'No se pudo registrar el dictamen.', 'error');
+                    }
+                });
+            }
+        });
+    });
+
+
     cargarVacantes();
     cargarCandidatos();
+    cargarSolicitudesPosicion();
+
+    // Obtener el noEmpleado desde la cookie
+    function getCookie(name) {
+        var value = "; " + document.cookie;
+        var parts = value.split("; " + name + "=");
+        if (parts.length === 2) return parts.pop().split(";").shift();
+        return "";
+    }
+
+    function cargarCatalogosSolicitud(callback) {
+        ajaxPost('acciones_solicitante.php', { accion: 'obtener_catalogos_solicitud' }, function (err, res) {
+            // Manejo seguro del objeto de datos
+            var data = (res && res.data) ? res.data : (res || {});
+            var areas = data.areas || [];
+            var sedes = data.sedes || [];
+
+            if (err || !res || !res.success) {
+                console.error('Error al obtener catálogos:', err || res);
+                if (typeof callback === 'function') callback();
+                return;
+            }
+
+            var $area = $('#area, #edit_area').empty().append('<option value="">Selecciona un área...</option>');
+            var $sede = $('#sede, #edit_sede').empty().append('<option value="">Selecciona una sede...</option>');
+
+            areas.forEach(function (a) {
+                $area.append('<option value="' + a.id + '">' + escHtml(a.departamento) + '</option>');
+            });
+
+            sedes.forEach(function (s) {
+                $sede.append('<option value="' + s.id + '">' + escHtml(s.region) + '</option>');
+            });
+
+            if (typeof callback === 'function') callback();
+        });
+    }
+
 });
 </script>
 </body>
