@@ -56,6 +56,49 @@ if (!function_exists('sivacAvisosAlta')) {
             . implode('', $filas) . '</table>';
     }
 
+    /**
+     * Cuerpo del correo de un área, en el orden en que se lee: primero POR QUÉ le
+     * llega, luego QUÉ tiene que hacer, y al final los datos.
+     *
+     * El orden importa: antes la ficha iba arriba y la petición al final, así que
+     * quien abría el correo veía una tabla de datos sin saber qué se esperaba de
+     * él, y la acción —lo único que tenía que hacer— quedaba debajo de todo. Ahora
+     * la acción va en un bloque destacado que se ve sin bajar.
+     *
+     * @param string $contexto Una línea: qué es este correo.
+     * @param string $accion   Qué necesita el área hacer o devolver. Vacío = sólo
+     *                         informativo, y entonces no se pinta el bloque.
+     * @param array  $filas    Filas de la ficha (altaFila()).
+     * @param string $nota     Advertencia opcional, en ámbar, bajo la acción.
+     */
+    function altaCuerpo(string $contexto, string $accion, array $filas, string $nota = ''): string {
+        // Todo el texto va centrado; la tabla de datos NO, porque una lista de
+        // "etiqueta: valor" centrada deja de leerse en columna.
+        $h = '<p style="margin:0 0 16px;text-align:center;">' . $contexto . '</p>';
+
+        if ($accion !== '') {
+            // Cinta amarilla, el mismo tratamiento del aviso de modo pruebas: es lo
+            // único del correo que exige hacer algo, así que resalta sobre el resto.
+            $h .= '<div style="margin:0 0 16px;padding:14px 16px;border-radius:4px;'
+                . 'background:#fef3c7;color:#92400e;text-align:center;">'
+                . '<div style="font-size:13px;text-transform:uppercase;letter-spacing:.04em;'
+                . 'font-weight:bold;margin-bottom:6px;">Qué necesitamos de ti</div>'
+                . $accion . '</div>';
+        }
+
+        if ($nota !== '') {
+            // La advertencia va en gris y no en ámbar: con la acción ya en amarillo,
+            // dos cintas del mismo color competirían y ninguna resaltaría.
+            $h .= '<p style="margin:0 0 16px;padding:10px 12px;border-radius:4px;'
+                . 'background:#f3f4f6;color:#4b5563;font-size:14px;text-align:center;">' . $nota . '</p>';
+        }
+
+        return $h
+            . '<p style="margin:0 0 10px;text-align:center;">'
+            . 'A continuación te compartimos los datos del nuevo colaborador:</p>'
+            . altaFicha($filas);
+    }
+
     /** 'Sí' / 'No' para los requerimientos. */
     function altaSiNo($v): string {
         return !empty($v) ? 'Sí' : 'No';
@@ -103,28 +146,43 @@ if (!function_exists('sivacAvisosAlta')) {
         // El orden de $base se respeta.
         $cuerpos = [];
 
+        // El contexto es el mismo para todas: lo que cambia es qué se le pide a
+        // cada área. Se arma una vez para no repetir la frase cinco veces.
+        $contexto = 'Se completó el alta de un nuevo colaborador, su ingreso está programado para el '
+            . '<strong>' . altaEsc($d['fecha_ingreso']) . '</strong>. '
+            . 'Este correo te llega porque hay algo que necesitamos de tu área.';
+
         // ── Nóminas: es quien asigna el número de empleado. ──
         $nominas = $base;
         $nominas[] = altaFila('Correo personal:', $d['correo_personal']);
         $nominas[] = altaFila('Cel personal:',    $d['cel_personal']);
         $cuerpos['nominas'] = [
             'titulo' => 'Alta de colaborador — Nóminas',
-            'html'   => altaFicha($nominas)
-                . '<p style="margin:20px 0 0;">Por favor confírmanos el <strong>número de empleado</strong> '
-                . 'que le asignes: es el que necesita Recursos Humanos para darlo de alta en el sistema.</p>',
+            'html'   => altaCuerpo(
+                $contexto,
+                'Da de alta al colaborador y confirma el <strong>número de empleado</strong> asignado '
+                . 'a Recursos Humanos, para registrarlo en el sistema <strong>MESSBOOK</strong>.',
+                $nominas
+            ),
         ];
 
         // ── Cuenta de gastos: tarjeta de viáticos y celular. ──
         $gastos = $base;
         $gastos[] = altaFila('¿Necesita tarjeta de viáticos?', altaSiNo($d['req_viaticos']));
         $gastos[] = altaFila('¿Necesita celular?',             altaSiNo($d['req_celular']));
+        // Si no necesita ni tarjeta ni celular, el correo es informativo: no se le
+        // pide nada y el bloque de acción no aparece.
+        $accionGastos = [];
+        if (!empty($d['req_viaticos'])) $accionGastos[] = 'Tramita su <strong>tarjeta de viáticos</strong>.';
+        if (!empty($d['req_celular']))  $accionGastos[] = 'Asigna su <strong>celular</strong> y confirma el número a Recursos Humanos.';
         $cuerpos['gastos'] = [
             'titulo' => 'Alta de colaborador — Cuenta de gastos',
-            'html'   => altaFicha($gastos)
-                . (!empty($d['req_celular'])
-                    ? '<p style="margin:20px 0 0;">Al asignarle el equipo, por favor confírmanos el '
-                      . '<strong>número de celular</strong>.</p>'
-                    : ''),
+            'html'   => altaCuerpo(
+                $contexto,
+                $accionGastos ? implode('<br>', $accionGastos) : '',
+                $gastos,
+                $accionGastos ? '' : 'Este colaborador <strong>no requiere</strong> tarjeta de viáticos ni celular. Es sólo para tu conocimiento.'
+            ),
         ];
 
         // ── Marketing: necesita el correo corporativo, que lo asigna Sistemas. ──
@@ -132,11 +190,15 @@ if (!function_exists('sivacAvisosAlta')) {
         $marketing[] = altaFila('Correo de MESS:', $d['correo_mess'] ?? '');
         $cuerpos['marketing'] = [
             'titulo' => 'Alta de colaborador — Marketing',
-            'html'   => altaFicha($marketing)
-                . (empty($d['correo_mess'])
-                    ? '<p style="margin:20px 0 0;color:#92400e;background:#fef3c7;padding:10px 12px;border-radius:4px;">'
-                      . 'El <strong>correo corporativo</strong> lo asigna Sistemas; en cuanto lo tengan te lo comparten.</p>'
-                    : ''),
+            'html'   => altaCuerpo(
+                $contexto,
+                'Da la <strong>bienvenida institucional</strong> al colaborador y agrégalo a los '
+                . 'directorios y canales internos que correspondan.',
+                $marketing,
+                empty($d['correo_mess'])
+                    ? 'El <strong>correo corporativo</strong> todavía no está asignado: lo crea Sistemas y en cuanto lo tengan te lo comparten.'
+                    : ''
+            ),
         ];
 
         // ── Sistemas: correo corporativo, accesos SCOT y equipo de cómputo. ──
@@ -144,29 +206,33 @@ if (!function_exists('sivacAvisosAlta')) {
         $sistemas[] = altaFila('¿Necesita computadora o laptop?', altaSiNo($d['req_equipo']));
         $cuerpos['sistemas'] = [
             'titulo' => 'Alta de colaborador — Sistemas',
-            'html'   => altaFicha($sistemas)
-                . '<p style="margin:20px 0 8px;">Se solicita:</p>'
-                . '<ul style="margin:0;padding-left:20px;">'
-                . '<li><strong>Correo corporativo</strong></li>'
-                . '<li><strong>Accesos a SCOT</strong></li>'
-                . (!empty($d['req_equipo']) ? '<li><strong>Computadora o laptop</strong></li>' : '')
-                . '</ul>'
-                . '<p style="margin:16px 0 0;">Al quedar listos, por favor confírmanos el '
-                . '<strong>correo electrónico asignado</strong>.</p>',
+            'html'   => altaCuerpo(
+                $contexto,
+                // Sin viñetas: la lista con <ul> se alinea a la izquierda y rompía
+                // el centrado del bloque.
+                'Prepara para el colaborador su <strong>correo corporativo</strong>, '
+                . 'sus <strong>accesos a SCOT</strong>'
+                . (!empty($d['req_equipo']) ? ' y su <strong>computadora o laptop</strong>' : '')
+                . '.<br>Cuando estén listos, confirma el <strong>correo electrónico asignado</strong> '
+                . 'a Recursos Humanos.',
+                $sistemas
+            ),
         ];
 
         // ── Almacén: herramientas. La lista se la pasa el JEFE por su cuenta. ──
         $almacen = $base;
         $cuerpos['almacen'] = [
             'titulo' => 'Alta de colaborador — Almacén',
-            'html'   => altaFicha($almacen)
-                . (!empty($d['herramientas_notificadas'])
-                    ? '<p style="margin:20px 0 0;">El jefe directo indicó que ya te envió la '
-                      . '<strong>lista de herramientas</strong> que necesita esta persona. '
-                      . 'Por favor confírmanos qué se le entregó.</p>'
-                    : '<p style="margin:20px 0 0;color:#92400e;background:#fef3c7;padding:10px 12px;border-radius:4px;">'
-                      . 'El jefe directo <strong>todavía no confirma</strong> haberte enviado la lista de '
-                      . 'herramientas. Si no te llega, solicítasela directamente.</p>'),
+            'html'   => altaCuerpo(
+                $contexto,
+                'Entrega al colaborador las <strong>herramientas</strong> que le correspondan y '
+                . 'confirma <strong>qué se le entregó</strong> a Recursos Humanos. La lista te la '
+                . 'pasa el jefe directo.',
+                $almacen,
+                !empty($d['herramientas_notificadas'])
+                    ? ''
+                    : 'El jefe directo <strong>todavía no confirma</strong> haberte enviado la lista de herramientas. Si no te llega, solicítasela directamente.'
+            ),
         ];
 
         // Sólo las áreas marcadas por RRHH que además tengan destinatario cargado.

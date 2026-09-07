@@ -78,7 +78,7 @@ switch ($accion) {
         $desc = 'JUSTIFICACIÓN: ' . $justificacion
               . ($descripcion !== '' ? "\n\n" . $descripcion : '');
 
-        $folio  = generarFolioVacante($conn);
+        $folio  = generarFolioVacante($conn, $departamento);
         $puesto = $cat['puesto'];
         $stmt = $conn->prepare(
             "INSERT INTO vacantes (folio, puesto, id_puesto, tipo, duracion_meses, motivo_temporal,
@@ -233,6 +233,80 @@ switch ($accion) {
             ]);
         }
         responder(true, 'CV aprobado y disponibilidad registrada.');
+    }
+
+    case 'reagendar_entrevista': {
+        // El jefe mueve SU entrevista sin tener que pedírselo a RRHH. Hasta ahora
+        // reprogramar sólo estaba en acciones_proceso.php (gate RRHH), así que un
+        // cambio de agenda del jefe obligaba a un correo o una llamada.
+        $id    = (int)($_POST['id'] ?? 0);
+        $op1   = trim($_POST['opcion1'] ?? '');
+        $op2   = trim($_POST['opcion2'] ?? '');
+        $notas = trim($_POST['notas'] ?? '');
+        if ($id <= 0) responder(false, 'Id inválido.');
+        if (!esSolicitanteDeCandidato($conn, $noEmp, $id)) responder(false, 'No tienes permiso sobre este candidato.');
+
+        $t1 = strtotime($op1); $t2 = strtotime($op2);
+        if (!$t1 || !$t2) responder(false, 'Indica dos fechas válidas para la entrevista.');
+        if ($t1 <= time() || $t2 <= time()) responder(false, 'Las fechas deben ser futuras.');
+        if ($t1 === $t2) responder(false, 'Las dos opciones deben ser distintas.');
+
+        $stmt = $conn->prepare("SELECT estatus FROM candidatos WHERE id = ? LIMIT 1");
+        $stmt->bind_param('i', $id); $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc(); $stmt->close();
+        if (!$row) responder(false, 'Candidato no encontrado.');
+        $actual = $row['estatus'];
+        if ($actual !== 'aprobado_jefe' && $actual !== 'entrevista_confirmada') {
+            responder(false, 'Sólo se puede reagendar mientras la entrevista sigue por hacerse.');
+        }
+
+        // Se cancelan las citas VIGENTES, no sólo las pendientes: si ya estaba
+        // confirmada y se deja viva, el candidato queda con dos entrevistas y la
+        // ficha muestra la vieja como buena.
+        $upd = $conn->prepare(
+            "UPDATE citas SET estatus = 'cancelada'
+              WHERE id_candidato = ? AND tipo = 'jefe' AND estatus IN ('pendiente','confirmada')"
+        );
+        $upd->bind_param('i', $id); $upd->execute(); $upd->close();
+
+        $f1 = date('Y-m-d H:i:s', $t1); $f2 = date('Y-m-d H:i:s', $t2);
+        $notasVal = $notas !== '' ? $notas : null;
+        $stmt = $conn->prepare("INSERT INTO citas (id_candidato, tipo, opcion1, opcion2, duracion_aprox, notas) VALUES (?, 'jefe', ?, ?, '', ?)");
+        $stmt->bind_param('isss', $id, $f1, $f2, $notasVal);
+        $ok = $stmt->execute(); $stmt->close();
+        if (!$ok) responder(false, 'No se pudo registrar la nueva disponibilidad.');
+
+        // Si la entrevista ya estaba confirmada, el candidato retrocede a
+        // 'aprobado_jefe': vuelve a estar pendiente de que elija fecha, y RRHH lo ve
+        // otra vez en su bandeja de confirmar.
+        if ($actual === 'entrevista_confirmada') {
+            $r = cambiarEstatusCandidato($conn, $id, 'aprobado_jefe', $noEmp,
+                'El solicitante reagendó la entrevista.' . ($notas !== '' ? ' Notas: ' . $notas : ''));
+            if (!$r['ok']) responder(false, $r['message']);
+        }
+
+        $stmt = $conn->prepare(
+            "SELECT TRIM(CONCAT_WS(' ', c.nombre, NULLIF(c.apellidos,''))) AS nombre, v.folio, v.id AS id_vacante
+             FROM candidatos c INNER JOIN vacantes v ON v.id = c.id_vacante WHERE c.id = ? LIMIT 1"
+        );
+        $stmt->bind_param('i', $id); $stmt->execute();
+        $info = $stmt->get_result()->fetch_assoc(); $stmt->close();
+        if ($info) {
+            // Sólo campana para RRHH: es quien tiene que volver a cuadrar la fecha
+            // con el candidato. El correo al candidato sale cuando RRHH confirme,
+            // igual que en el alta de la cita: no se le mandan dos mensajes seguidos.
+            $fmt1 = date('d/m/Y H:i', $t1); $fmt2 = date('d/m/Y H:i', $t2);
+            notificarEvento($conn, 'entrevista_disponibilidad', [
+                'destinos_no_empleado' => sivacDestinosRRHH($conn),
+                'id_candidato' => $id, 'id_vacante' => (int)$info['id_vacante'],
+                'titulo' => 'Entrevista reagendada por el solicitante — ' . $info['nombre'],
+                'mensaje' => $info['folio'] . ' · nuevas opciones: ' . $fmt1 . ' o ' . $fmt2
+                    . '; confirmar cuál elige el candidato'
+                    . ($notas !== '' ? ' · ' . $notas : ''),
+                'url' => 'candidatos.php',
+            ]);
+        }
+        responder(true, 'Entrevista reagendada. RRHH confirmará la fecha con el candidato.');
     }
 
     case 'descartar_cv': {

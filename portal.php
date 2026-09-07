@@ -14,6 +14,7 @@
  */
 require_once 'conn.php';
 require_once 'includes/accesos.php';
+require_once 'includes/candidatos.php';
 require_once 'includes/assets.php';
 require_once 'includes/datos_alta.php';
 
@@ -68,19 +69,18 @@ if ($valido && !$pideClave) {
     while ($r = $res->fetch_assoc()) $tipos[] = $r;
 
     // Último documento subido por tipo (para mostrar estado de validación).
-    $stmt = $conn->prepare(
+    // Se buscan en TODAS las fichas de esta persona, no sólo en ésta: si ya se
+    // postuló antes a otra vacante y entregó su INE, no se le vuelve a pedir.
+    $enFichas = sivacInFichasDePersona($conn, $idCandidato);
+    $rd = $conn->query(
         "SELECT d.id_tipo, d.nombre_original, d.validacion, d.motivo_validacion, d.fecha_creacion
          FROM documentos d
-         WHERE d.id_candidato = ?
+         WHERE d.id_candidato IN ($enFichas)
          ORDER BY d.id DESC"
     );
-    $stmt->bind_param('i', $idCandidato);
-    $stmt->execute();
-    $rd = $stmt->get_result();
-    while ($r = $rd->fetch_assoc()) {
+    while ($rd && $r = $rd->fetch_assoc()) {
         if (!isset($ultimoPorTipo[$r['id_tipo']])) $ultimoPorTipo[$r['id_tipo']] = $r;
     }
-    $stmt->close();
 
     // Datos ya capturados (para precargar el formulario).
     $datos = sivacDatosAlta($conn, $idCandidato);

@@ -11,7 +11,7 @@ include 'encabezado.php';
 
 <ul class="nav nav-tabs mb-3" id="configTabs" role="tablist">
     <li class="nav-item"><a class="nav-link active" data-toggle="tab" href="#tabDocs" role="tab">Tipos de documento</a></li>
-    <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#tabDest" role="tab">Avisos de alta</a></li>
+    <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#tabDest" role="tab">Notificaciones de alta</a></li>
     <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#tabCons" role="tab">Accesos de consulta</a></li>
 </ul>
 
@@ -30,11 +30,11 @@ include 'encabezado.php';
     <!-- Destinatarios -->
     <div class="tab-pane fade" id="tabDest" role="tabpanel">
         <div class="card"><div class="card-body">
-            <p class="text-muted small">Correos que reciben el aviso cuando se completa un alta (TI, viáticos, teléfono, marketing…).</p>
+            <p class="text-muted small">Correos que reciben la notificación cuando se completa un alta (TI, viáticos, teléfono, marketing…).</p>
             <button class="btn btn-primary btn-sm mb-3" id="btnNuevoDest"><i class="fas fa-plus mr-1"></i>Nuevo destinatario</button>
             <table class="table table-sm" id="tablaDest">
                 <thead><tr><th>Área</th><th>Correo</th><th class="text-center">Activo</th><th></th></tr></thead>
-                <caption class="small text-muted">Un área puede tener varias personas: agrega una fila por cada una con el mismo aviso.</caption>
+                <caption class="small text-muted">Un área puede tener varias personas: agrega una fila por cada una con la misma notificación.</caption>
                 <tbody></tbody>
             </table>
         </div></div>
@@ -78,13 +78,13 @@ include 'encabezado.php';
 <div class="modal fade" id="modalDest" tabindex="-1" role="dialog">
   <div class="modal-dialog" role="document"><div class="modal-content">
     <form id="formDest">
-      <div class="modal-header"><h5 class="modal-title">Destinatario de aviso</h5>
+      <div class="modal-header"><h5 class="modal-title">Destinatario de notificación</h5>
         <button type="button" class="close" data-dismiss="modal">&times;</button></div>
       <div class="modal-body">
         <input type="hidden" id="dest_id">
         <!-- La clave decide QUÉ correo recibe: cada área del alta pide datos
              distintos. Puede haber varias personas con la misma clave. -->
-        <div class="form-group"><label>Aviso que recibe *</label>
+        <div class="form-group"><label>Notificación que recibe *</label>
           <select class="form-control" id="dest_clave" required>
             <option value="nominas">Nóminas — número de empleado y datos personales</option>
             <option value="gastos">Cuenta de gastos — viáticos y celular</option>

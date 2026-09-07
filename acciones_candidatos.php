@@ -9,6 +9,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once 'conn.php';
 require_once 'auth.php';
 require_once 'includes/respuesta.php';
+require_once 'includes/candidatos.php';
 require_once 'includes/archivos.php';
 require_once 'includes/flujo.php';
 require_once 'includes/notificaciones.php';
@@ -177,16 +178,17 @@ switch ($accion) {
             while ($r = $rp->fetch_assoc()) $props[] = $r; $stmt->close();
         }
 
+        // Documentos de TODAS las fichas de la persona: los que entregó postulándose
+        // a otra vacante son los mismos y siguen valiendo.
         $docs = [];
-        $stmt = $conn->prepare(
+        $enFichas = sivacInFichasDePersona($conn, $id);
+        if ($rd = $conn->query(
             "SELECT d.id, d.nombre_original, d.tamano, d.fecha_creacion, t.nombre AS tipo,
                     d.validacion, d.validado_fecha, d.motivo_validacion
              FROM documentos d INNER JOIN documentos_tipos t ON t.id = d.id_tipo
-             WHERE d.id_candidato = ? ORDER BY d.id DESC"
-        );
-        if ($stmt) {
-            $stmt->bind_param('i', $id); $stmt->execute(); $rd = $stmt->get_result();
-            while ($r = $rd->fetch_assoc()) $docs[] = $r; $stmt->close();
+             WHERE d.id_candidato IN ($enFichas) ORDER BY d.id DESC"
+        )) {
+            while ($r = $rd->fetch_assoc()) $docs[] = $r;
         }
 
         responder(true, '', ['data' => $cand, 'historial' => $hist, 'citas' => $citas, 'propuestas' => $props, 'documentos' => $docs]);
@@ -253,6 +255,102 @@ switch ($accion) {
         responder(true, 'Candidato registrado.', ['id' => $id]);
     }
 
+    case 'copiar_a_vacante': {
+        // Postula a la MISMA persona en otra vacante sin recapturarla ni volver a
+        // pedirle el CV. Se crea una ficha nueva —proceso independiente, con su
+        // estatus y su historial— hermanada por id_origen; ver includes/candidatos.php.
+        $id        = (int)($_POST['id'] ?? 0);
+        $idVacante = (int)($_POST['id_vacante'] ?? 0);
+        if ($id <= 0)        responder(false, 'Id inválido.');
+        if ($idVacante <= 0) responder(false, 'Selecciona la vacante destino.');
+
+        $stmt = $conn->prepare(
+            "SELECT id, id_vacante, id_origen, estatus, nombre, apellidos, correo, telefono,
+                    cv_archivo, cv_nombre_original, cv_tamano,
+                    entrevista_rrhh_fecha, entrevista_rrhh_resultado, entrevista_rrhh_observaciones,
+                    psicometrico_fecha, psicometrico_calificacion, psicometrico_resultado, psicometrico_observaciones,
+                    nave, region
+             FROM candidatos WHERE id = ? LIMIT 1"
+        );
+        if (!$stmt) responder(false, 'No se pudo leer al candidato: ' . $conn->error);
+        $stmt->bind_param('i', $id);
+        $stmt->execute();
+        $o = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if (!$o) responder(false, 'Candidato no encontrado.');
+        // Mismo criterio que la UI, revalidado aquí: un contratado ya terminó su
+        // proceso. Descartado SÍ se puede postular —es el caso típico: no quedó en
+        // esta vacante pero sirve para la otra—.
+        if ($o['estatus'] === 'contratado') {
+            responder(false, 'Esta persona ya fue contratada; no se puede postular a otra vacante.');
+        }
+
+        $vac = vacanteDe($conn, $idVacante);
+        if (!$vac) responder(false, 'Vacante inválida.');
+        if (!in_array($vac['estatus'], ['abierta', 'en_proceso'], true)) {
+            responder(false, 'Esa vacante no admite nuevos candidatos (estatus ' . $vac['estatus'] . ').');
+        }
+        if ((int)$o['id_vacante'] === $idVacante) {
+            responder(false, 'El candidato ya está en esa vacante.');
+        }
+
+        // Ninguna de sus fichas puede estar ya en la vacante destino: postular dos
+        // veces a la misma vacante duplicaría al candidato en el tablero de RRHH.
+        $enFichas = sivacInFichasDePersona($conn, $id);
+        $chk = $conn->prepare("SELECT 1 FROM candidatos WHERE id_vacante = ? AND id IN ($enFichas) LIMIT 1");
+        $chk->bind_param('i', $idVacante);
+        $chk->execute();
+        $repetido = $chk->get_result()->num_rows > 0;
+        $chk->close();
+        if ($repetido) responder(false, 'Esta persona ya está postulada a esa vacante.');
+
+        // Se copia lo que es de la PERSONA (contacto, CV, constancia de RRHH y
+        // psicométrico: no tiene sentido volver a entrevistarla ni reaplicarle la
+        // prueba por cambiar de vacante) y NADA del proceso anterior: la ficha nueva
+        // nace 'aspirante', sin descarte, sin citas y sin historial heredado.
+        //
+        // El CV apunta al MISMO archivo en disco a propósito: es el mismo documento,
+        // y duplicarlo dejaría dos copias que se desincronizan al reemplazarlo.
+        $persona = sivacIdPersona($conn, $id);
+        $stmt = $conn->prepare(
+            // El estatus va EXPLÍCITO, no por DEFAULT de la columna: el de la BD no
+            // coincide con el de database.sql ('enviado_solicitante' contra
+            // 'aspirante'), y una copia que naciera ya enviada se saltaría la
+            // revisión de RRHH sin que nadie lo pidiera.
+            "INSERT INTO candidatos (id_vacante, id_origen, estatus, nombre, apellidos, correo, telefono,
+                                     cv_archivo, cv_nombre_original, cv_tamano,
+                                     entrevista_rrhh_fecha, entrevista_rrhh_resultado, entrevista_rrhh_observaciones,
+                                     psicometrico_fecha, psicometrico_calificacion, psicometrico_resultado, psicometrico_observaciones,
+                                     nave, region, creador_por)
+             VALUES (?, ?, 'aspirante', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        );
+        if (!$stmt) responder(false, 'No se pudo copiar al candidato: ' . $conn->error);
+        $stmt->bind_param(
+            'iissssssisssssssiii',
+            $idVacante, $persona, $o['nombre'], $o['apellidos'], $o['correo'], $o['telefono'],
+            $o['cv_archivo'], $o['cv_nombre_original'], $o['cv_tamano'],
+            $o['entrevista_rrhh_fecha'], $o['entrevista_rrhh_resultado'], $o['entrevista_rrhh_observaciones'],
+            $o['psicometrico_fecha'], $o['psicometrico_calificacion'], $o['psicometrico_resultado'], $o['psicometrico_observaciones'],
+            $o['nave'], $o['region'], $noEmp
+        );
+        $ok = $stmt->execute();
+        $nuevo = (int)$conn->insert_id;
+        $stmt->close();
+        if (!$ok) responder(false, 'No se pudo postular al candidato en esa vacante.');
+
+        $comentario = 'Postulado también a ' . $vac['folio'] . ' (copia de la ficha #' . $id . ')';
+        $hist = $conn->prepare(
+            "INSERT INTO candidatos_historial (id_candidato, estatus_anterior, estatus_nuevo, no_empleado, comentario)
+             VALUES (?, 'aspirante', 'aspirante', ?, ?)"
+        );
+        $hist->bind_param('iis', $nuevo, $noEmp, $comentario);
+        $hist->execute();
+        $hist->close();
+
+        responder(true, 'Candidato postulado a ' . $vac['folio'] . '. Sus documentos ya entregados se reutilizan.',
+            ['id' => $nuevo]);
+    }
+
     case 'reemplazar_cv': {
         $id = (int)($_POST['id'] ?? 0);
         if ($id <= 0) responder(false, 'Id inválido.');
@@ -265,8 +363,15 @@ switch ($accion) {
         $cv = sivacGuardarArchivo($_FILES['cv'], ['pdf'], SIVAC_MAX_CV, SIVAC_DIR_CV);
         if (!$cv['ok']) responder(false, $cv['message']);
 
-        $stmt = $conn->prepare("UPDATE candidatos SET cv_archivo = ?, cv_nombre_original = ?, cv_tamano = ? WHERE id = ?");
-        $stmt->bind_param('ssii', $cv['nombre'], $cv['original'], $cv['tamano'], $id);
+        // El CV es de la PERSONA, y sus fichas en otras vacantes apuntan al mismo
+        // archivo: se actualizan todas. Si sólo se cambiara ésta, al borrar el
+        // archivo viejo las demás quedarían apuntando a un PDF inexistente.
+        $enFichas = sivacInFichasDePersona($conn, $id);
+        $stmt = $conn->prepare(
+            "UPDATE candidatos SET cv_archivo = ?, cv_nombre_original = ?, cv_tamano = ?
+              WHERE id IN ($enFichas)"
+        );
+        $stmt->bind_param('ssi', $cv['nombre'], $cv['original'], $cv['tamano']);
         $ok = $stmt->execute(); $stmt->close();
         if ($ok && $row['cv_archivo']) @unlink(SIVAC_DIR_CV . basename($row['cv_archivo']));
         responder($ok, $ok ? 'CV actualizado.' : 'No se pudo actualizar el CV.');

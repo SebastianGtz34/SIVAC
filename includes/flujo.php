@@ -40,7 +40,11 @@ const SIVAC_TRANSICIONES_ESTANDAR = [
     'aspirante'                  => ['enviado_solicitante', 'descartado'],
     'enviado_solicitante'        => ['aprobado_jefe', 'descartado'],
     'aprobado_jefe'              => ['entrevista_confirmada', 'descartado'],
-    'entrevista_confirmada'      => ['entrevistado', 'descartado'],
+    // El retroceso a 'aprobado_jefe' es REAGENDAR: la entrevista ya confirmada se
+    // cayó (el candidato no llegó, el jefe la mueve) y vuelve a quedar pendiente de
+    // que el candidato elija fecha. Sin él, reprogramar dejaba al candidato en
+    // «Entrevista confirmada» sin ninguna cita confirmada detrás.
+    'entrevista_confirmada'      => ['entrevistado', 'aprobado_jefe', 'descartado'],
     'entrevistado'               => ['propuesta_enviada', 'descartado'],
     'propuesta_enviada'          => ['propuesta_aceptada', 'propuesta_expirada', 'descartado'],
     'propuesta_expirada'         => ['propuesta_enviada', 'descartado'],
@@ -56,7 +60,7 @@ const SIVAC_TRANSICIONES_PRACTICAS = [
     'aspirante'                  => ['enviado_solicitante', 'descartado'],
     'enviado_solicitante'        => ['aprobado_jefe', 'descartado'],
     'aprobado_jefe'              => ['entrevista_confirmada', 'descartado'],
-    'entrevista_confirmada'      => ['entrevistado', 'descartado'],
+    'entrevista_confirmada'      => ['entrevistado', 'aprobado_jefe', 'descartado'],  // retroceso = reagendar
     'entrevistado'               => ['documentacion', 'descartado'],
     'documentacion'              => ['contratado', 'descartado'],
     'contratado'                 => [],

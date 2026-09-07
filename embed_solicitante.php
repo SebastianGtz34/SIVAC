@@ -774,7 +774,9 @@ $nombreSesion = $datosSesion['nombre'] ?? ('empleado #' . $noEmpSesion);
 <script src="<?= sivacAsset('js/funciones.js') ?>"></script>
 <script>
 $(function () {
-    var estatusS = window.SIVAC_estatusS || {};
+    // Etiquetas en versión JEFE: dicen de quién depende el siguiente paso, en vez
+    // de narrar el proceso desde RRHH. Se cae a las generales por si faltara una.
+    var estatusS = $.extend({}, window.SIVAC_estatusS || {}, window.SIVAC_estatusS_JEFE || {});
     var estatusS_VAC = window.SIVAC_estatusS_VAC || {};
     var puedeSolicitar = <?= $puedeSolicitar ? 'true' : 'false' ?>;
     var NOMBRE_SESION = <?= json_encode($nombreSesion, JSON_UNESCAPED_UNICODE) ?>;
@@ -939,9 +941,14 @@ $(function () {
                 if (c.estatus === 'enviado_solicitante') {
                     acc = '<button class="btn btn-sm btn-success btnAprobar mr-1" data-id="' + c.id + '"><i class="fas fa-check mr-1"></i>Aprobar</button>'
                         + '<button class="btn btn-sm btn-outline-danger btnDescartar" data-id="' + c.id + '"><i class="fas fa-times mr-1"></i>Descartar</button>';
+                } else if (c.estatus === 'aprobado_jefe') {
+                    // Todavía sin fecha cerrada: lo único que puede hacer el jefe es
+                    // cambiar las opciones que ofreció.
+                    acc = '<button class="btn btn-sm btn-outline-primary btnReagendar" data-id="' + c.id + '"><i class="fas fa-calendar-alt mr-1"></i>Cambiar fechas</button>';
                 } else if (c.estatus === 'entrevista_confirmada') {
                     acc = '<button class="btn btn-sm btn-success btnResultadoOk mr-1" data-id="' + c.id + '"><i class="fas fa-check mr-1"></i>Aprobó</button>'
-                        + '<button class="btn btn-sm btn-outline-danger btnResultadoNo" data-id="' + c.id + '"><i class="fas fa-times mr-1"></i>Descartó</button>';
+                        + '<button class="btn btn-sm btn-outline-danger btnResultadoNo mr-1" data-id="' + c.id + '"><i class="fas fa-times mr-1"></i>Descartó</button>'
+                        + '<button class="btn btn-sm btn-outline-primary btnReagendar" data-id="' + c.id + '"><i class="fas fa-calendar-alt mr-1"></i>Reagendar</button>';
                 }
 
                 $c.append(
@@ -958,6 +965,43 @@ $(function () {
                 );
             });
     }
+
+    // Reagendar: mismo diálogo de dos fechas que al aprobar. Si la entrevista ya
+    // estaba confirmada, el backend la cancela y devuelve al candidato a «pendiente
+    // de que elija fecha», así que se avisa aquí para que no sorprenda.
+    $('#misCandidatos').on('click', '.btnReagendar', function () {
+        var id = $(this).data('id');
+        var yaConfirmada = $(this).text().indexOf('Reagendar') !== -1;
+        Swal.fire({
+            title: yaConfirmada ? 'Reagendar la entrevista' : 'Cambiar las fechas',
+            html: '<p class="small text-muted mb-2">Ofrece dos opciones nuevas de fecha y hora para <strong>tu</strong> entrevista. '
+                + 'Pueden ser el <strong>mismo día a distinta hora</strong>; solo tienen que ser distintas y futuras.</p>'
+                + (yaConfirmada
+                    ? '<p class="small text-warning mb-2">La fecha ya confirmada se cancelará y RRHH volverá a cuadrarla con el candidato.</p>'
+                    : '')
+                + '<input type="datetime-local" id="sw_op1" class="swal2-input">'
+                + '<input type="datetime-local" id="sw_op2" class="swal2-input">'
+                + '<textarea id="sw_notas" class="swal2-textarea" placeholder="Motivo del cambio (opcional)."></textarea>',
+            showCancelButton: true, confirmButtonColor: messColor('accent'),
+            background: messColor('card-bg'), color: messColor('text'),
+            confirmButtonText: 'Guardar', cancelButtonText: 'Cancelar',
+            preConfirm: function () {
+                var o1 = document.getElementById('sw_op1').value;
+                var o2 = document.getElementById('sw_op2').value;
+                if (!o1 || !o2) { Swal.showValidationMessage('Indica las dos fechas.'); return false; }
+                return { opcion1: o1, opcion2: o2, notas: document.getElementById('sw_notas').value };
+            }
+        }).then(function (r) {
+            if (!r.isConfirmed) return;
+            ajaxPost('acciones_solicitante.php', {
+                accion: 'reagendar_entrevista', id: id,
+                opcion1: r.value.opcion1, opcion2: r.value.opcion2, notas: r.value.notas
+            }, function (err, res) {
+                if (res && res.success) { mostrarToast(res.message, 'success'); cargarVacantes(); cargarCandidatos(); }
+                else { mostrarToast((res && res.message) || 'Error.', 'error'); }
+            });
+        });
+    });
 
     $('#misCandidatos').on('click', '.btnAprobar', function () {
         var id = $(this).data('id');

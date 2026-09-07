@@ -15,6 +15,7 @@
 header('Content-Type: application/json; charset=utf-8');
 require_once 'conn.php';
 require_once 'includes/respuesta.php';
+require_once 'includes/candidatos.php';
 require_once 'includes/archivos.php';
 require_once 'includes/accesos.php';
 require_once 'includes/datos_alta.php';
@@ -124,6 +125,24 @@ switch ($accion) {
         $doc = sivacGuardarArchivo($_FILES['documento'], ['pdf', 'jpg', 'jpeg', 'png'], SIVAC_MAX_DOC, SIVAC_DIR_DOC);
         if (!$doc['ok']) responder(false, $doc['message']);
 
+        // UN documento por tipo: el nuevo REEMPLAZA al anterior. Es lo que espera
+        // quien se equivocó de archivo, y evita que RRHH tenga que adivinar cuál de
+        // los dos INE es el bueno. Los previos se localizan ANTES de insertar pero
+        // se borran DESPUÉS de que el insert haya ido bien: si algo falla, el
+        // candidato conserva el que ya tenía en vez de quedarse sin ninguno.
+        // El barrido cubre TODAS las fichas de esta persona: si ya había entregado
+        // su INE postulándose a otra vacante, el nuevo sustituye a aquél y no
+        // quedan dos versiones del mismo documento repartidas entre sus fichas.
+        $previos  = [];
+        $enFichas = sivacInFichasDePersona($conn, $idCandidato);
+        if ($st = $conn->prepare("SELECT id, nombre_archivo FROM documentos WHERE id_tipo = ? AND id_candidato IN ($enFichas)")) {
+            $st->bind_param('i', $idTipo);
+            $st->execute();
+            $rs = $st->get_result();
+            while ($p = $rs->fetch_assoc()) $previos[] = $p;
+            $st->close();
+        }
+
         // subido_por = 0 → lo subió el candidato (no es empleado); origen lo confirma.
         $subidoPor = 0; $origen = 'candidato';
         $stmt = $conn->prepare(
@@ -133,13 +152,29 @@ switch ($accion) {
         $stmt->bind_param('iisssiis', $idCandidato, $idTipo, $doc['nombre'], $doc['original'], $doc['mime'], $doc['tamano'], $subidoPor, $origen);
         $ok = $stmt->execute(); $stmt->close();
         if (!$ok) { @unlink(SIVAC_DIR_DOC . $doc['nombre']); responder(false, 'No se pudo guardar el documento.'); }
+
+        // Fuera los anteriores del mismo tipo: primero la fila, luego el archivo
+        // (si el DELETE falla, el archivo huérfano es preferible a una fila que
+        // apunte a un archivo inexistente). El documento nuevo nace 'pendiente'
+        // aunque el que sustituye ya estuviera validado: cambió el contenido, así
+        // que la validación anterior de RRHH dejó de aplicar.
+        foreach ($previos as $p) {
+            if ($st = $conn->prepare("DELETE FROM documentos WHERE id = ?")) {
+                $st->bind_param('i', $p['id']);
+                if ($st->execute()) @unlink(SIVAC_DIR_DOC . $p['nombre_archivo']);
+                $st->close();
+            }
+        }
+
         avisarRrhh($conn, $cand, $idCandidato, 'documentos_recibidos',
             'Documentación por revisar — ' . $cand['nombre']);
 
         // Se devuelve el estado nuevo del renglón para que la página lo repinte SIN
         // recargar: recargar borraba los archivos ya elegidos en los otros renglones
         // y lo que el candidato llevara tecleado (y no guardado) en sus datos.
-        responder(true, 'Documento subido. Recursos Humanos lo revisará.', ['documento' => [
+        responder(true, $previos
+            ? 'Documento reemplazado. Recursos Humanos lo revisará.'
+            : 'Documento subido. Recursos Humanos lo revisará.', ['documento' => [
             'id_tipo'         => $idTipo,
             'nombre_original' => $doc['original'],
             'validacion'      => 'pendiente',

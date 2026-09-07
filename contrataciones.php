@@ -116,7 +116,7 @@ include 'encabezado.php';
                Los tres requerimientos no salen de ningún otro lado del proceso;
                las casillas evitan avisarle a Almacén de un alta administrativa. -->
           <hr class="my-3">
-          <h6>Avisos a las áreas</h6>
+          <h6>Notificaciones a las áreas</h6>
           <p class="small text-muted mb-2">
             <i class="fas fa-info-circle mr-1"></i>Se envía un correo <strong>por área</strong>,
             cada uno con los datos que esa área pide. Desmarca las que no apliquen.
@@ -127,7 +127,7 @@ include 'encabezado.php';
                deshabilitados porque ya se decidieron; el reenvío los lee de la BD. -->
           <div id="avisoReenvio" class="alert alert-info py-2 small d-none">
             <i class="fas fa-redo mr-1"></i>El alta ya se completó. Aquí puedes
-            <strong>volver a mandar</strong> los avisos a las áreas que no los recibieron.
+            <strong>volver a mandar</strong> las notificaciones a las áreas que no las recibieron.
           </div>
           <form id="formAvisosAlta">
             <div class="form-group mb-2" id="bloqueRequerimientos">
@@ -152,7 +152,7 @@ include 'encabezado.php';
           </form>
 
           <button class="btn btn-success btn-block mt-3" id="btnCompletarAlta"><i class="fas fa-user-check mr-1"></i>Completar alta</button>
-          <button class="btn btn-outline-primary btn-block mt-3 d-none" id="btnReenviarAvisos"><i class="fas fa-redo mr-1"></i>Reenviar avisos a las áreas</button>
+          <button class="btn btn-outline-primary btn-block mt-3 d-none" id="btnReenviarAvisos"><i class="fas fa-redo mr-1"></i>Reenviar notificaciones a las áreas</button>
         </div>
         <div class="col-md-6">
           <h6>Documentos del candidato</h6>

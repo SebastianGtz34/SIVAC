@@ -8,6 +8,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once 'conn.php';
 require_once 'auth.php';
 require_once 'includes/respuesta.php';
+require_once 'includes/candidatos.php';
 require_once 'includes/archivos.php';
 require_once 'includes/flujo.php';
 require_once 'includes/notificaciones.php';
@@ -135,7 +136,7 @@ function mandarAvisosAlta(mysqli $conn, array $c, array $ficha, array $areas): a
 function mensajeAvisosAlta(array $res, array $sinCorreo): string {
     $msg = '';
     if ($res['enviadas']) {
-        $msg .= ' Avisos enviados a: ' . implode(', ', $res['enviadas']) . '.';
+        $msg .= ' Notificaciones enviadas a: ' . implode(', ', $res['enviadas']) . '.';
     }
     if ($res['fallidas']) {
         // Agrupadas POR MOTIVO: cuando falta config_correo.php fallan las cinco
@@ -148,10 +149,10 @@ function mensajeAvisosAlta(array $res, array $sinCorreo): string {
     }
     if ($sinCorreo) {
         $msg .= ' ⚠️ Sin correo configurado (no se avisó): ' . implode(', ', $sinCorreo)
-              . '. Cárgalos en Configuración → Destinatarios.';
+              . '. Cárgalos en Configuración → Notificaciones de alta.';
     }
     if (!$res['enviadas'] && !$res['fallidas'] && !$sinCorreo) {
-        $msg .= ' No se envió ningún aviso.';
+        $msg .= ' No se envió ninguna notificación.';
     }
     return $msg;
 }
@@ -676,15 +677,16 @@ switch ($accion) {
         if (!$ct['reglamento_enviado']) responder(false, 'Envía el reglamento de ingreso antes de completar el alta.');
 
         // Los documentos obligatorios deben estar VALIDADOS por RRHH, no solo subidos.
-        $stmt = $conn->prepare(
+        // Cuentan los de TODAS las fichas de la persona: si ya los entregó y se los
+        // validaron postulándose a otra vacante, siguen sirviendo para este alta.
+        $enFichas = sivacInFichasDePersona($conn, $id);
+        $rc = $conn->query(
             "SELECT (SELECT COUNT(*) FROM documentos_tipos WHERE obligatorio = 1 AND estatus = 1) AS req,
                     (SELECT COUNT(DISTINCT d.id_tipo) FROM documentos d
                        INNER JOIN documentos_tipos t ON t.id = d.id_tipo
-                       WHERE d.id_candidato = ? AND t.obligatorio = 1 AND t.estatus = 1
+                       WHERE d.id_candidato IN ($enFichas) AND t.obligatorio = 1 AND t.estatus = 1
                          AND d.validacion = 'validado') AS validados"
-        );
-        $stmt->bind_param('i', $id); $stmt->execute();
-        $rc = $stmt->get_result()->fetch_assoc(); $stmt->close();
+        )->fetch_assoc();
         if ((int)$rc['validados'] < (int)$rc['req']) {
             responder(false, 'Faltan documentos obligatorios validados (' . (int)$rc['validados'] . '/' . (int)$rc['req'] . ').');
         }
@@ -812,7 +814,7 @@ switch ($accion) {
 
         // A diferencia del alta, aquí el envío ES la operación: si no salió
         // ninguno, esto fracasó y el toast tiene que ser rojo.
-        $msg = 'Reenvío de avisos.' . mensajeAvisosAlta($res, $sinCorreo);
+        $msg = 'Reenvío de notificaciones.' . mensajeAvisosAlta($res, $sinCorreo);
         responder(!empty($res['enviadas']), $msg, [
             'aviso'    => ($res['fallidas'] || $sinCorreo) ? 1 : 0,
             'fallidas' => array_keys($res['fallidas']),

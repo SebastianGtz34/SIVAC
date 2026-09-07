@@ -491,15 +491,15 @@ $(function () {
             return $('label[for="' + this.id + '"]').text().trim();
         }).get();
 
-        confirmarAccion('Se volverá a enviar el aviso de alta a: <strong>' + escHtml(nombres.join(', '))
-            + '</strong>. Si ya lo habían recibido, les llegará repetido.', function () {
+        confirmarAccion('Se volverá a enviar la notificación de alta a: <strong>' + escHtml(nombres.join(', '))
+            + '</strong>. Si ya la habían recibido, les llegará repetida.', function () {
             ajaxPost('acciones_cierre.php', {
                 accion: 'reenviar_avisos_alta', id: docCandidato, areas: areas.join(',')
             }, function (err, res) {
                 if (!res) { mostrarToast('Error.', 'error'); return; }
                 mostrarToast(res.message, res.success ? (res.aviso ? 'warning' : 'success') : 'error');
             });
-        }, { titulo: 'Reenviar avisos', confirmar: 'Sí, reenviar', icon: 'question' });
+        }, { titulo: 'Reenviar notificaciones', confirmar: 'Sí, reenviar', icon: 'question' });
     });
 
     cargar();

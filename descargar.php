@@ -14,6 +14,7 @@
 
 require_once 'conn.php';
 require_once 'auth.php';
+require_once 'includes/candidatos.php';
 require_once 'includes/archivos.php'; // constantes SIVAC_DIR_CV / SIVAC_DIR_DOC
 
 $noEmp = sivacAuthNoEmpleado();
@@ -65,7 +66,7 @@ if ($tipo === 'cv') {
 } else {
     // documento: se resuelve el candidato dueño para validar permiso.
     $stmt = $conn->prepare(
-        "SELECT nombre_archivo, nombre_original, mime, id_candidato
+        "SELECT nombre_archivo, nombre_original, mime, id_candidato, validacion
          FROM documentos WHERE id = ? LIMIT 1"
     );
     $stmt->bind_param('i', $id);
@@ -79,7 +80,15 @@ if ($tipo === 'cv') {
         echo 'Archivo no encontrado.';
         exit;
     }
-    if (!$esRRHH && !esSolicitanteDeCandidato($conn, $noEmp, (int)$row['id_candidato'])) {
+    // Permiso POR PERSONA, no por ficha: el documento cuelga de la ficha en la que
+    // se subió, pero si esa persona también es candidata en la vacante de quien
+    // pide el archivo, esa documentación es parte de su proceso. Comprobar sólo la
+    // ficha dueña dejaba el documento visible en la lista y en 403 al abrirlo.
+    //
+    // El acceso especial 'documentos' NO entra aquí a propósito: esa vista es de
+    // CONSULTA —ver qué hay y si está validado—, no de descarga. Los archivos son
+    // datos personales del candidato y no salen de RRHH y su solicitante.
+    if (!$esRRHH && !esSolicitanteDePersona($conn, $noEmp, (int)$row['id_candidato'])) {
         http_response_code(403);
         header('Content-Type: text/plain; charset=utf-8');
         echo 'Sin permiso para descargar este archivo.';

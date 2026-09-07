@@ -213,7 +213,7 @@ switch ($accion) {
         if (!$emp)                responder(false, 'El solicitante no existe o no está activo.');
 
         $puesto = $cat['puesto'];
-        $folio  = generarFolioVacante($conn);
+        $folio  = generarFolioVacante($conn, $departamento);
         // Región: snapshot del solicitante al momento de crear.
         $region = ((int)($emp['region'] ?? 0)) > 0 ? (int)$emp['region'] : null;
 
