@@ -34,6 +34,18 @@
 // 27 = Business Intelligence, 47 = Recursos Humanos (mess_rrhh.departamento).
 define('SIVAC_DEPTS_RRHH', [27, 47]);
 
+// Nombre del sistema en mess_rrhh.accesos_especiales, la tabla de permisos
+// puntuales que comparte todo el ecosistema (activos, entradasEq, ctrlVehicular,
+// kpis, incidencias, gestionPersonal…) con la forma
+// (sistema, opcion, noEmpleado, estatus). Los accesos se conceden ahí, no aquí:
+// esto sólo los lee.
+//
+// Va 'NEST' y no 'SIVAC' porque es el nombre con el que se dieron de alta los
+// registros: la carpeta sigue llamándose SIVAC pero el sistema ya es NEST. OJO,
+// la comparación de MySQL no distingue mayúsculas con estas collations, pero el
+// valor tiene que coincidir en TEXTO con el que capture quien concede el acceso.
+define('SIVAC_SISTEMA_ACCESOS', 'NEST');
+
 // Departamentos que RECIBEN los avisos internos. Es un subconjunto del anterior:
 // BI entra a SIVAC como súper-usuario (soporte y desarrollo), pero no lleva el
 // proceso de reclutamiento, así que no se le llena la campana. ACCESO y AVISOS
@@ -185,6 +197,37 @@ if (!function_exists('sivacAuthNoEmpleado')) {
         $ok = $stmt->get_result()->num_rows > 0;
         $stmt->close();
         return $ok;
+    }
+
+    /**
+     * ¿Tiene concedida esta opción en mess_rrhh.accesos_especiales?
+     *
+     * Es la MISMA tabla y el mismo patrón que usan los demás sistemas
+     * (`sistema` + `opcion` + `estatus = 1`); SIVAC sólo la lee. Conceder o quitar
+     * un acceso se hace donde ya se administra esa tabla, no desde aquí: duplicar
+     * el CRUD daría dos lugares donde revocar y uno se quedaría sin revocar.
+     *
+     * RRHH la tiene por default, igual que en la vista de consulta: si ya entra al
+     * sistema completo, no tiene sentido pedirle además un permiso puntual.
+     */
+    function tieneAccesoEspecial(mysqli $conn, int $noEmpleado, string $opcion): bool {
+        if (esRRHH($conn, $noEmpleado)) return true;
+
+        static $cache = [];
+        $llave = $noEmpleado . '|' . $opcion;
+        if (isset($cache[$llave])) return $cache[$llave];
+
+        $sistema = SIVAC_SISTEMA_ACCESOS;
+        $stmt = $conn->prepare(
+            "SELECT 1 FROM mess_rrhh.accesos_especiales
+              WHERE noEmpleado = ? AND sistema = ? AND opcion = ? AND estatus = 1 LIMIT 1"
+        );
+        if (!$stmt) return $cache[$llave] = false;
+        $stmt->bind_param('iss', $noEmpleado, $sistema, $opcion);
+        $stmt->execute();
+        $ok = $stmt->get_result()->num_rows > 0;
+        $stmt->close();
+        return $cache[$llave] = $ok;
     }
 
     /** Datos básicos del empleado desde mess_rrhh (nombre/correo) o null. */

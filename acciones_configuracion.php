@@ -54,7 +54,7 @@ switch ($accion) {
         if ($area === '') responder(false, 'El área es obligatoria.');
         // La clave decide qué cuerpo de correo recibe: si no es una de las
         // conocidas, esa fila nunca recibiría nada y nadie se enteraría.
-        if (!array_key_exists($clave, sivacAreasAlta())) responder(false, 'Selecciona qué aviso recibe.');
+        if (!array_key_exists($clave, sivacAreasAlta())) responder(false, 'Selecciona qué notificación recibe.');
         if (!filter_var($correo, FILTER_VALIDATE_EMAIL)) responder(false, 'Correo inválido.');
         if ($id > 0) {
             $stmt = $conn->prepare("UPDATE notificaciones_destinatarios SET clave = ?, area = ?, correo = ?, activo = ? WHERE id = ?");

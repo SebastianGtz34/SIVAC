@@ -19,6 +19,31 @@ window.SIVAC_estatusS = {
     descartado: 'Descartado'
 };
 
+/** Etiquetas del MISMO pipeline, redactadas para el JEFE (embed_solicitante.php).
+ *
+ *  Las de arriba están escritas desde RRHH y al jefe no le sirven: él ES el
+ *  solicitante, así que «Enviado al solicitante» o «Aprobado por solicitante» no
+ *  le dicen ni qué pasó ni de quién depende el siguiente paso —justo lo que
+ *  necesita para saber si la pelota está de su lado—. Aquí cada estatus dice
+ *  quién tiene la acción pendiente.
+ *
+ *  Es sólo PRESENTACIÓN de esa vista: las claves y el pipeline no cambian, y el
+ *  backend sigue mandando el mismo estatus. Por eso este mapa no tiene espejo en
+ *  includes/flujo.php. */
+window.SIVAC_estatusS_JEFE = {
+    aspirante: 'En revisión de RRHH',
+    enviado_solicitante: 'Pendiente de revisión',
+    aprobado_jefe: 'Aprobado · RRHH agenda la entrevista',
+    entrevista_confirmada: 'Entrevista confirmada contigo',
+    entrevistado: 'Ya lo entrevistaste · sigue RRHH',
+    propuesta_enviada: 'RRHH le envió la propuesta',
+    propuesta_expirada: 'La propuesta venció sin respuesta',
+    propuesta_aceptada: 'Aceptó la propuesta',
+    documentacion: 'En documentación',
+    contratado: 'Contratado',
+    descartado: 'Descartado'
+};
+
 /** Etiquetas de estatus de VACANTE (espejo del ENUM vacantes.estatus). */
 window.SIVAC_estatusS_VAC = {
     pendiente_vobo: 'Pendiente de VoBo',

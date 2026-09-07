@@ -98,6 +98,15 @@ CREATE TABLE IF NOT EXISTS vacantes (
 CREATE TABLE IF NOT EXISTS candidatos (
     id           INT UNSIGNED NOT NULL AUTO_INCREMENT,
     id_vacante   INT UNSIGNED NOT NULL,
+    -- Una PERSONA puede estar en varias vacantes. En vez de volver el estatus un
+    -- par (candidato, vacante) —que obligaría a reescribir todo el pipeline—, cada
+    -- postulación es su propia fila y esta columna las hermana: NULL en la primera,
+    -- el id de esa primera en cada copia. La «llave de persona» es entonces
+    -- COALESCE(id_origen, id), y es la que comparten sus documentos: lo que ya
+    -- entregó no se le vuelve a pedir aunque se postule a otra vacante.
+    -- Sin FK a propósito: si algún día se borra la ficha original, las copias deben
+    -- sobrevivir como procesos independientes, no caer en cascada.
+    id_origen    INT UNSIGNED NULL COMMENT 'ficha original si ésta es una postulación copiada; NULL si es la primera',
     nombre       VARCHAR(150) NOT NULL,
     apellidos    VARCHAR(500) NOT NULL,
     correo       VARCHAR(150) NOT NULL,
@@ -131,6 +140,7 @@ CREATE TABLE IF NOT EXISTS candidatos (
     PRIMARY KEY (id),
     KEY idx_cand_vacante (id_vacante),
     KEY idx_cand_estado (estatus),
+    KEY idx_cand_origen (id_origen),
     CONSTRAINT fk_cand_vacante FOREIGN KEY (id_vacante)
         REFERENCES vacantes (id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -342,6 +352,12 @@ CREATE TABLE IF NOT EXISTS accesos_consulta (
     PRIMARY KEY (id),
     UNIQUE KEY uq_consulta_empleado (no_empleado)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- NOTA: los accesos ESPECIALES (como el de ver documentos para el alta de nómina)
+-- NO viven aquí. Son la tabla compartida `mess_rrhh.accesos_especiales`, que ya
+-- usan loginMaster, activos, entradasEq, incidencias y gestionPersonal, con la
+-- forma (sistema, opcion, noEmpleado, estatus). SIVAC los lee con
+-- tieneAccesoEspecial() en auth.php y los concede quien administra esa tabla.
 
 -- ----------------------------------------------------------------------------
 -- Accesos del portal del candidato (Fase B).

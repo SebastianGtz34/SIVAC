@@ -42,10 +42,14 @@ if (!function_exists('sivacConfigCorreo')) {
      * mensaje tiene que leerse completo sin verlo (de ahí el alt y el título).
      */
     function sivacPlantillaCorreo(string $titulo, string $cuerpoHtml): string {
-        // Lockup Grupo MESS + NEST. Va por URL ABSOLUTA porque un correo se lee
-        // fuera del servidor; la ruta es la del despliegue (la carpeta sigue
-        // llamándose SIVAC aunque el sistema ya se llame NEST).
-        $logo = 'https://messbook.com.mx/SIVAC/img/NEST/nest-logo-mess.png';
+        // Dos logos separados, no el lockup: NEST encabeza el correo (es quien
+        // manda el mensaje) y Grupo MESS firma al pie (es la empresa). Van por URL
+        // ABSOLUTA porque un correo se lee fuera del servidor; la ruta es la del
+        // despliegue (la carpeta sigue llamándose SIVAC aunque el sistema ya sea
+        // NEST). Los dos son PNG de tinta azul/gris sobre fondo claro, así que
+        // ambas bandas donde viven son blancas.
+        $logoNest = 'https://messbook.com.mx/SIVAC/img/NEST/nest-logo.png';
+        $logoMess = 'https://messbook.com.mx/SIVAC/img/logo_mess.png';
 
         $tel  = htmlspecialchars(SIVAC_RRHH_TELEFONO);
         $cel  = htmlspecialchars(SIVAC_RRHH_CELULAR);
@@ -60,14 +64,34 @@ if (!function_exists('sivacConfigCorreo')) {
             . '<body style="margin:0;background:#f2f4f8;font-family:Arial,Helvetica,sans-serif;color:#1f2937;">'
             . '<div style="max-width:600px;margin:24px auto;background:#ffffff;border-radius:8px;overflow:hidden;'
             . 'box-shadow:0 2px 8px rgba(0,0,0,.08);">'
-            . '<div style="padding:20px 24px 16px;text-align:center;">'
-            . '<img src="' . $logo . '" alt="Grupo MESS — NEST" style="max-width:260px;height:auto;">'
+            // NEST arriba, en banda blanca y compacta, justo encima del título: el
+            // alt lleva el nombre completo porque la mayoría de los clientes de
+            // correo bloquea las imágenes por defecto y el encabezado tiene que
+            // leerse igual sin ellas.
+            . '<div style="padding:18px 24px 12px;text-align:center;">'
+            // El atributo width= NO es decorativo ni redundante: buena parte de los
+            // clientes de correo ignora el CSS inline de las imágenes, y sin él la
+            // pintan a su tamaño natural (650 px, el ancho entero del correo). El
+            // style se queda para los que sí lo respetan y para las pantallas HiDPI.
+            . '<img src="' . $logoNest . '" alt="NEST — Núcleo de Evaluación y Selección de Talento"'
+            . ' width="245" style="width:245px;max-width:245px;height:auto;display:block;margin:0 auto;border:0;">'
             . '</div>'
-            . '<div style="background:#074480;padding:12px 24px;text-align:center;color:#ffffff;'
+            . '<div style="background:#074480;padding:14px 24px;text-align:center;color:#ffffff;'
             . 'font-size:17px;font-weight:bold;">' . htmlspecialchars($titulo) . '</div>'
             . '<div style="padding:28px 32px;font-size:15px;line-height:1.6;">' . $cuerpoHtml . '</div>'
-            . '<div style="padding:16px 32px;background:#f8f9fc;border-top:1px solid #e5e7eb;'
+            . '<div style="padding:20px 32px;background:#f8f9fc;border-top:1px solid #e5e7eb;'
             . 'font-size:12px;color:#6c757d;text-align:center;line-height:1.7;">'
+            // Grupo MESS firma al pie: la empresa detrás del sistema. Con width=
+            // por lo mismo que el de arriba.
+            //
+            // El logo va dentro de su PROPIO div y no suelto con display:block:
+            // Outlook (y algún otro) ignora el display de las imágenes, la deja en
+            // línea y el texto del pie se le encimaba. El div sí lo respetan todos,
+            // y su padding es lo que garantiza la separación.
+            . '<div style="padding:0 0 14px;">'
+            . '<img src="' . $logoMess . '" alt="Grupo MESS"'
+            . ' width="187" style="width:187px;max-width:187px;height:auto;display:block;margin:0 auto;border:0;">'
+            . '</div>'
             . '<strong style="color:#4b5563;">NEST — Núcleo de Evaluación y Selección de Talento</strong><br>'
             . '¿Dudas? Escríbele a Recursos Humanos: ' . implode(' · ', $mails) . '<br>'
             . 'Tel. ' . $tel . ' · Cel. ' . $cel . '<br>'
@@ -102,6 +126,36 @@ if (!function_exists('sivacConfigCorreo')) {
         }
         if (!$destinos) {
             return ['ok' => false, 'error' => 'Sin destinatarios válidos.', 'para' => $listaStr];
+        }
+
+        // ── Redirección de PRUEBAS ────────────────────────────────────────────
+        // Con 'redirigir_a' puesto en config_correo.php, TODO el correo va a esa
+        // dirección en vez de a los destinatarios reales. Es lo que permite recorrer
+        // el proceso completo —propuesta, reglamento, las cinco notificaciones de
+        // alta— sin escribirle a un candidato ni a las áreas.
+        //
+        // Vive en config_correo.php a propósito, que es gitignored y se crea a mano
+        // en cada entorno: así NO hay forma de que un commit lo active en producción.
+        // La comprobación de destinatarios reales queda ARRIBA de esto, para que un
+        // correo sin destinatario siga fallando igual que sin redirección y las
+        // pruebas no escondan ese error.
+        $redirigir = trim((string)($cfg['redirigir_a'] ?? ''));
+        $pruebas   = $redirigir !== '' && filter_var($redirigir, FILTER_VALIDATE_EMAIL);
+        if ($pruebas) {
+            // El banner va al principio del cuerpo y el asunto lleva [PRUEBAS]: al
+            // recibirlos todos en un mismo buzón, lo primero que se necesita saber
+            // es a quién le habría llegado de verdad.
+            $cuerpoHtml = '<div style="margin:0 0 18px;padding:10px 12px;border-radius:4px;'
+                . 'background:#fef3c7;color:#92400e;font-size:13px;line-height:1.5;">'
+                . '<strong>⚠️ MODO PRUEBAS.</strong> Este correo NO se envió a sus destinatarios.<br>'
+                . 'Iba para: <strong>' . htmlspecialchars($listaStr) . '</strong>'
+                . '</div>' . $cuerpoHtml;
+            $asunto   = '[PRUEBAS] ' . $asunto;
+            // La bitácora guarda a dónde llegó Y a quién iba: si sólo guardara el
+            // destinatario real, parecería que el correo sí salió a las áreas.
+            $listaStr = $redirigir . ' [PRUEBAS; iba para: ' . $listaStr . ']';
+            $destinos = [$redirigir];
+            $copias   = [];
         }
 
         $mail = new PHPMailer\PHPMailer\PHPMailer(true);

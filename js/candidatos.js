@@ -117,6 +117,12 @@ $(function () {
                 if (c.estatus !== 'aspirante' && c.estatus !== 'descartado') {
                     acc += '<button class="btn btn-outline-info btnPsico" data-id="' + c.id + '" title="Psicométrico"><i class="fas fa-brain"></i>psicometrico/Otras pruebas</button>';
                 }
+                // Postular a otra vacante: disponible incluso si está descartado —ése
+                // es justo el caso, «aquí no quedó pero sirve para la otra»—. No para
+                // los ya contratados.
+                if (c.estatus !== 'contratado') {
+                    acc += '<button class="btn btn-outline-secondary btnCopiar" data-id="' + c.id + '" title="Postular a otra vacante"><i class="fas fa-share"></i> Otra vacante</button>';
+                }
                 if (c.estatus !== 'contratado' && c.estatus !== 'descartado') {
                     acc += '<button class="btn btn-sm btn-outline-danger btnDescartar" data-id="' + c.id + '" title="Descartar"><i class="fas fa-times"></i> Descartar</button>';
                 }
@@ -282,6 +288,47 @@ $(function () {
                 if (res && res.success) { mostrarToast('Candidato descartado.', 'success'); cargar(); }
                 else { mostrarToast((res && res.message) || 'Error.', 'error'); }
             });
+        });
+    });
+
+    // ── Postular a la misma persona en otra vacante ──
+    // Crea una ficha nueva (proceso aparte) reutilizando su CV y los documentos que
+    // ya entregó. Sólo se ofrecen las vacantes que admiten candidatos.
+    $('#tablaCandidatos tbody').on('click', '.btnCopiar', function () {
+        var id = $(this).data('id');
+        var opciones = vacantesCache.filter(function (v) {
+            return v.estatus === 'abierta' || v.estatus === 'en_proceso';
+        });
+        if (!opciones.length) {
+            mostrarToast('No hay vacantes abiertas a las que postularlo.', 'warning');
+            return;
+        }
+        var sel = '<select id="sw_vac" class="swal2-select"><option value="">Selecciona la vacante…</option>';
+        opciones.forEach(function (v) {
+            sel += '<option value="' + v.id + '">' + escHtml(v.folio + ' — ' + v.puesto) + '</option>';
+        });
+        sel += '</select>';
+
+        Swal.fire({
+            title: 'Postular a otra vacante',
+            html: '<p class="small text-muted mb-2">Se creará una ficha nueva para esta persona en la vacante que elijas. '
+                + 'Su CV y los documentos que ya entregó <strong>se reutilizan</strong>: no se le vuelven a pedir. '
+                + 'El proceso de cada vacante avanza por separado.</p>' + sel,
+            showCancelButton: true, confirmButtonColor: messColor('accent'),
+            background: messColor('card-bg'), color: messColor('text'),
+            confirmButtonText: 'Postular', cancelButtonText: 'Cancelar',
+            preConfirm: function () {
+                var v = document.getElementById('sw_vac').value;
+                if (!v) { Swal.showValidationMessage('Selecciona la vacante.'); return false; }
+                return v;
+            }
+        }).then(function (r) {
+            if (!r.isConfirmed) return;
+            ajaxPost('acciones_candidatos.php', { accion: 'copiar_a_vacante', id: id, id_vacante: r.value },
+                function (err, res) {
+                    if (res && res.success) { mostrarToast(res.message, 'success'); cargar(); }
+                    else { mostrarToast((res && res.message) || 'No se pudo postular.', 'error'); }
+                });
         });
     });
 

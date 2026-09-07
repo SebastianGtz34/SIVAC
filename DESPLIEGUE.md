@@ -84,6 +84,25 @@ SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS
 Debe devolver **cuatro** filas, todas de `candidato_accesos` (`token`, `pass_hash`,
 `intentos`, `bloqueado_hasta`) y **ninguna** de sueldo.
 
+### Retro PT1 (3-sep): un candidato en varias vacantes
+Cada postulación es una fila propia de `candidatos` y se hermanan con esta
+columna. Sin ella, «Otra vacante» truena con *Unknown column*:
+
+```sql
+ALTER TABLE candidatos
+  ADD COLUMN id_origen INT UNSIGNED NULL
+    COMMENT 'ficha original si ésta es una postulación copiada; NULL si es la primera' AFTER id_vacante,
+  ADD KEY idx_cand_origen (id_origen);
+```
+
+> **Ojo con el DEFAULT de `candidatos.estatus`.** En la BD vale
+> `enviado_solicitante`, pero `database.sql` dice `aspirante`. La divergencia es
+> anterior a esta retro y afecta también al alta normal de candidatos: nacen ya
+> enviados al solicitante, y el checkbox de «enviar al solicitante» —que sólo se
+> pinta para `aspirante`— nunca aparece. Hay que decidir cuál de los dos es el
+> bueno y alinear ambos. El código de la copia no depende del default: escribe el
+> estatus explícitamente.
+
 ### Validación de documentos (17-ago) — comprobar antes de descartarlo
 Estas columnas entraron con la retro de validación de documentos y **nunca se
 anotaron aquí**, así que no consta si se aplicaron en producción. Comprobar:
