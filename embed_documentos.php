@@ -13,13 +13,12 @@
  *  - Sólo documentos con validacion='validado'. Los pendientes y los rechazados
  *    se quedan fuera: si nómina trabaja con un documento que RRHH todavía no
  *    revisó —o que rechazó—, da de alta con un dato malo.
- *  - SIN descarga. Esta vista dice QUÉ hay y si ya está validado; los archivos en
- *    sí son datos personales del candidato y no salen de RRHH y su solicitante.
- *    descargar.php no reconoce este acceso, así que tampoco sirve poner el id a
- *    mano en la URL.
+ *  - El nombre del archivo abre el documento, por descargar.php, que revalida el
+ *    permiso por su cuenta y SÓLO deja pasar los validados con este acceso. Poner
+ *    a mano en la URL el id de uno pendiente o rechazado no sirve de nada.
  *
- * Se renderiza server-side, igual que embed_consulta.php: es una vista de lectura,
- * no necesita su propio endpoint JSON.
+ * Se renderiza server-side: es una vista de lectura y no necesita endpoint JSON.
+ * Es la ÚNICA vista de NEST que se abre a alguien fuera de RRHH/BI.
  */
 require_once 'conn.php';
 require_once 'auth.php';
@@ -51,7 +50,7 @@ $embed = true;
     $sql = "SELECT c.id AS id_candidato,
                    TRIM(CONCAT_WS(' ', c.nombre, NULLIF(c.apellidos,''))) AS candidato,
                    c.estatus, v.folio, v.puesto,
-                   d.nombre_original, d.tamano, d.validado_fecha,
+                   d.id AS id_doc, d.nombre_original, d.tamano, d.validado_fecha,
                    t.nombre AS tipo
               FROM documentos d
               INNER JOIN documentos_tipos t ON t.id = d.id_tipo
@@ -94,17 +93,32 @@ $embed = true;
             $d = $grupo['datos']; ?>
             <div class="card mb-3 shadow-sm">
                 <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-start mb-2">
+                    <?php
+                      // Cada expediente arranca CERRADO: son varias personas con una
+                      // docena de documentos cada una, y abiertos de golpe la pantalla
+                      // es imposible de recorrer. El encabezado entero es el disparador
+                      // del collapse, no sólo un iconito.
+                      $panelId = 'exp' . (int)$idCand;
+                    ?>
+                    <div class="d-flex justify-content-between align-items-start mb-0"
+                         data-toggle="collapse" data-target="#<?= $panelId ?>"
+                         role="button" aria-expanded="false" aria-controls="<?= $panelId ?>"
+                         style="cursor:pointer">
                         <div>
-                            <div class="fw-700" style="font-size:1.05rem"><?= htmlspecialchars($d['candidato']) ?></div>
-                            <div class="text-muted small">
+                            <div class="fw-700" style="font-size:1.05rem">
+                                <i class="fas fa-chevron-right mr-2 text-muted small"></i>
+                                <?= htmlspecialchars($d['candidato']) ?>
+                            </div>
+                            <div class="text-muted small" style="margin-left:1.35rem">
                                 <?= htmlspecialchars($d['folio']) ?> · <?= htmlspecialchars($d['puesto']) ?>
+                                · <?= count($grupo['docs']) ?> documento<?= count($grupo['docs']) === 1 ? '' : 's' ?>
                             </div>
                         </div>
                         <span class="badge badge-estatus badge-<?= htmlspecialchars($d['estatus']) ?>">
                             <?= $d['estatus'] === 'contratado' ? 'Contratado' : 'En documentación' ?>
                         </span>
                     </div>
+                    <div class="collapse mt-3" id="<?= $panelId ?>">
                     <div class="table-responsive">
                         <table class="table table-sm table-hover mb-0">
                             <thead><tr>
@@ -118,7 +132,12 @@ $embed = true;
                                         <i class="fas fa-check-circle text-success mr-1"></i>
                                         <?= htmlspecialchars($doc['tipo']) ?>
                                     </td>
-                                    <td class="text-muted small"><?= htmlspecialchars($doc['nombre_original']) ?></td>
+                                    <td class="small">
+                                        <a href="descargar.php?tipo=documento&id=<?= (int)$doc['id_doc'] ?>"
+                                           target="_blank" rel="noopener" title="Abrir documento">
+                                            <?= htmlspecialchars($doc['nombre_original']) ?>
+                                        </a>
+                                    </td>
                                     <td class="text-center text-muted small"><?= docTamano($doc['tamano']) ?></td>
                                     <td class="text-center text-muted small">
                                         <?= $doc['validado_fecha'] ? date('d/m/Y', strtotime($doc['validado_fecha'])) : '—' ?>
@@ -128,11 +147,32 @@ $embed = true;
                             </tbody>
                         </table>
                     </div>
+                    </div>
                 </div>
             </div>
         <?php endforeach; ?>
     <?php endif; ?>
 <?php endif; ?>
 </div>
+<?php if ($puede): ?>
+<!-- El collapse de Bootstrap necesita jQuery + el bundle; esta vista es
+     server-side y no cargaba ningún JS. Van locales, como todo el proyecto. -->
+<script src="vendor/jquery/jquery.min.js"></script>
+<script src="vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+<script>
+// La flecha apunta a la derecha cuando el expediente está cerrado y hacia abajo
+// cuando está abierto. Se engancha a los eventos de Bootstrap y no al clic, para
+// que siga en sincronía si algo abre el panel por su cuenta.
+$(function () {
+    $('.collapse').on('show.bs.collapse', function () {
+        $('[data-target="#' + this.id + '"] .fa-chevron-right')
+            .removeClass('fa-chevron-right').addClass('fa-chevron-down');
+    }).on('hide.bs.collapse', function () {
+        $('[data-target="#' + this.id + '"] .fa-chevron-down')
+            .removeClass('fa-chevron-down').addClass('fa-chevron-right');
+    });
+});
+</script>
+<?php endif; ?>
 </body>
 </html>

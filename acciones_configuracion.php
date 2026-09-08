@@ -1,7 +1,7 @@
 <?php
 /**
  * acciones_configuracion.php — Catálogos y accesos (JSON). Gate: RRHH.
- * CRUD de documentos_tipos, notificaciones_destinatarios y accesos_consulta.
+ * CRUD de documentos_tipos y notificaciones_destinatarios.
  */
 header('Content-Type: application/json; charset=utf-8');
 require_once 'conn.php';
@@ -74,43 +74,11 @@ switch ($accion) {
         responder($ok, $ok ? 'Destinatario eliminado.' : 'No se pudo eliminar.');
     }
 
-    /* ---- Accesos de consulta ---- */
-    case 'listar_consulta': {
-        $res = $conn->query(
-            "SELECT ac.id, ac.no_empleado, ac.comentario, ac.activo,
-                    IFNULL(u.nombre, ac.no_empleado) AS nombre
-             FROM accesos_consulta ac
-             LEFT JOIN mess_rrhh.usuarios u ON u.noEmpleado = ac.no_empleado
-             ORDER BY nombre"
-        );
-        $data = []; while ($r = $res->fetch_assoc()) $data[] = $r;
-        responder(true, '', ['data' => $data]);
-    }
-    case 'guardar_consulta': {
-        $noEmpleado = (int)($_POST['no_empleado'] ?? 0);
-        $comentario = trim($_POST['comentario'] ?? '');
-        if ($noEmpleado <= 0) responder(false, 'Número de empleado inválido.');
-        // Verifica que exista y esté activo en RRHH.
-        $stmt = $conn->prepare("SELECT nombre FROM mess_rrhh.usuarios WHERE noEmpleado = ? AND estatus = 1 LIMIT 1");
-        $stmt->bind_param('i', $noEmpleado); $stmt->execute();
-        $row = $stmt->get_result()->fetch_assoc(); $stmt->close();
-        if (!$row) responder(false, 'El empleado no existe o no está activo.');
-        // Upsert por UNIQUE(no_empleado).
-        $stmt = $conn->prepare(
-            "INSERT INTO accesos_consulta (no_empleado, comentario, activo) VALUES (?, ?, 1)
-             ON DUPLICATE KEY UPDATE comentario = VALUES(comentario), activo = 1"
-        );
-        $stmt->bind_param('is', $noEmpleado, $comentario);
-        $ok = $stmt->execute(); $stmt->close();
-        responder($ok, $ok ? 'Acceso concedido a ' . $row['nombre'] . '.' : 'No se pudo guardar.');
-    }
-    case 'toggle_consulta': {
-        $id = (int)($_POST['id'] ?? 0);
-        if ($id <= 0) responder(false, 'Id inválido.');
-        $stmt = $conn->prepare("UPDATE accesos_consulta SET activo = 1 - activo WHERE id = ?");
-        $stmt->bind_param('i', $id); $ok = $stmt->execute(); $stmt->close();
-        responder($ok, $ok ? 'Acceso actualizado.' : 'No se pudo actualizar.');
-    }
+    // El acceso a la vista de DOCUMENTOS ya no se administra aquí: vive en
+    // mess_rrhh.accesos_especiales (sistema 'NEST', opción 'verDocumentos'), que
+    // es donde el ecosistema concede sus permisos puntuales. Se retiró el CRUD
+    // propio para no tener dos lugares donde conceder —y, sobre todo, dos donde
+    // revocar—.
 
     default:
         responder(false, 'Acción no reconocida.');

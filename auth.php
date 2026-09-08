@@ -6,33 +6,67 @@
  * `noEmpleadoSVC` (por si en el futuro loginMaster la emite) y se cae a la
  * cookie global `noEmpleadoL` (path=/), que es la que hoy siempre llega.
  *
+ * ENTRAR A NEST LO DECIDE mess_rrhh.accesos. Ninguna página del sistema
+ * (dashboard, vacantes, candidatos, contrataciones, configuración) se abre a
+ * quien no tenga una fila activa con sistema = SIVAC_SISTEMA_CARD ('divNest'),
+ * que es la tabla del modal «Acceso a sistemas» del portal. Se valida en el
+ * backend, así que pegar la URL directa no sirve de nada.
+ *
+ * Todo lo que usa el resto de la empresa son VISTAS EMBEBIDAS que Messbook
+ * enseña como pestañas —«Mis Vacantes», documentos—: viven en este repo pero no
+ * son acceso al sistema y tienen su propio permiso.
+ *
  * Roles:
- *  - RRHH / Reclutamiento  → departamentos SIVAC_DEPTS_RRHH en mess_rrhh.usuarios.
- *    Acceso total al sistema (páginas y endpoints de gestión).
+ *  - Acceso a NEST → fila activa en mess_rrhh.accesos ('divNest'). Acceso total:
+ *    las páginas y los endpoints de gestión. Lo concede quien administra el modal
+ *    de sistemas, no SIVAC. La función se llama esRRHH() por historia; hoy
+ *    significa «tiene acceso a NEST».
  *  - Solicitante           → dueño de una vacante (no_empleado_solicitante).
  *    No requiere departamento; su permiso se valida por PERTENENCIA en cada
  *    consulta (JOIN), nunca por un parámetro del cliente.
- *  - Jefe / gerente        → empleado con AL MENOS UN subordinado activo
- *    (mess_rrhh.usuarios.jefe apunta a él). Puede levantar requisiciones —que
- *    nacen pendientes de VoBo de RRHH— y ver el dashboard acotado a su equipo.
- *  - Consulta              → tabla accesos_consulta (vista read-only). RRHH la
- *    tiene implícitamente.
+ *  - Jefe / gerente        → puesto en tipo_usr (SIVAC_TIPOS_USR_JEFE) o equipo a
+ *    cargo real (mess_rrhh.usuarios.jefe). Levanta requisiciones —que nacen
+ *    pendientes de VoBo— desde su pestaña del portal. NO entra a NEST.
+ *  - Documentos            → mess_rrhh.accesos_especiales, sistema 'NEST',
+ *    opción 'verDocumentos'. Vista embebida de solo lectura con los expedientes
+ *    ya validados, para el alta de nómina; RRHH la tiene implícitamente. Se
+ *    concede en Messbook, NO aquí: SIVAC no tiene pantalla para dar accesos.
  *
- * POR QUÉ LA JERARQUÍA Y NO tipo_usr: mess_rrhh.usuarios tiene una etiqueta
- * tipo_usr con valores 'JEFE'/'GERENTE', pero está incompleta — hay 30 empleados
- * con subordinados activos y solo 21 etiquetados (p. ej. jefes reales con 13 y 11
- * subordinados figuran como 'ADMINISTRACION' y 'VENTAS'). Gatear por la etiqueta
- * dejaría fuera a jefes de facto, así que el rol se deriva de la relación real
- * usuarios.jefe → usuarios.noEmpleado.
+ * tipo_usr Y JERARQUÍA, NO UNA U OTRA: la etiqueta tipo_usr está incompleta —hay
+ * jefes de facto con equipo grande registrados como 'ADMINISTRACION' o 'VENTAS'—,
+ * así que sola dejaría fuera a quien manda de verdad. Pero la jerarquía sola
+ * también falla, por el lado contrario: el jefe recién nombrado no tiene a nadie a
+ * su cargo todavía y es justo quien necesita pedir su primera contratación. Por
+ * eso las puertas aceptan las dos vías (ver puedeSolicitarVacante()).
+ *
+ * Dónde manda cada una: la ETIQUETA sirve de puerta (¿puede o no?) porque es con
+ * la que Messbook decide qué pestañas enseña, y dejar el permiso corto respecto
+ * del portal deja botones muertos. La JERARQUÍA es la única que sirve para filtrar
+ * DATOS (sivacSubordinados / sivacAlcanceVacantes): la etiqueta dice que alguien
+ * es jefe, no A QUIÉN manda. No se pueden intercambiar.
  *
  * Reglas de oro:
  *  - Verificación SIEMPRE en backend antes de una acción protegida.
  *  - Nunca confiar en parámetros del cliente para decidir privilegios.
  */
 
-// Único punto de configuración de los departamentos con acceso RRHH.
-// 27 = Business Intelligence, 47 = Recursos Humanos (mess_rrhh.departamento).
-define('SIVAC_DEPTS_RRHH', [27, 47]);
+// Nombre de NEST en mess_rrhh.accesos, la tabla con la que el modal «Acceso a
+// sistemas» de Messbook decide qué cards ve cada empleado. El valor es el id del
+// div de la card, igual que 'divIncidencias' o 'divCapacitacion'.
+//
+// Es la ÚNICA llave para entrar a NEST: sin una fila activa aquí, ninguna página
+// ni endpoint del sistema responde, ni siquiera pegando la URL directa.
+define('SIVAC_SISTEMA_CARD', 'divNest');
+
+// Etiquetas de mess_rrhh.usuarios.tipo_usr que cuentan como jefe.
+//
+// Es la MISMA lista con la que el portal Messbook decide quién ve la pestaña
+// «Mis Vacantes» (loginMaster/inicio.php). Vive aquí para que el permiso de
+// levantar requisición no le quede corto a quien el portal ya dejó entrar: si
+// allá se agrega o quita una etiqueta, hay que moverla también acá.
+//
+// NO da acceso a NEST. Sólo habilita la vista embebida del solicitante.
+define('SIVAC_TIPOS_USR_JEFE', ['SUPER_USUARIO', 'JEFE', 'GERENTE', 'JEFE_LAB', 'JEFE_ENCARGADO']);
 
 // Nombre del sistema en mess_rrhh.accesos_especiales, la tabla de permisos
 // puntuales que comparte todo el ecosistema (activos, entradasEq, ctrlVehicular,
@@ -46,10 +80,13 @@ define('SIVAC_DEPTS_RRHH', [27, 47]);
 // valor tiene que coincidir en TEXTO con el que capture quien concede el acceso.
 define('SIVAC_SISTEMA_ACCESOS', 'NEST');
 
-// Departamentos que RECIBEN los avisos internos. Es un subconjunto del anterior:
-// BI entra a SIVAC como súper-usuario (soporte y desarrollo), pero no lleva el
-// proceso de reclutamiento, así que no se le llena la campana. ACCESO y AVISOS
-// son cosas distintas: no unificar estas dos constantes.
+// Departamentos que RECIBEN los avisos internos (47 = Recursos Humanos).
+//
+// Esto SÍ sigue siendo el departamento del catálogo, y a propósito: ACCESO y
+// AVISOS son cosas distintas. Quien entra a NEST lo decide mess_rrhh.accesos y
+// ahí puede haber gente de soporte o de BI que no lleva el proceso de
+// reclutamiento; llenarle la campana a esa gente sería ruido. Los avisos van al
+// ÁREA responsable, no a quien tenga la llave.
 define('SIVAC_DEPTS_NOTIF', [47]);
 
 if (!function_exists('sivacAuthNoEmpleado')) {
@@ -84,26 +121,52 @@ if (!function_exists('sivacAuthNoEmpleado')) {
     }
 
     /**
-     * ¿El empleado pertenece a RRHH/Reclutamiento? (depto permitido y activo).
-     * Cachea el resultado por request. Los departamentos se interpolan solo
-     * desde la constante (nunca desde input) para el IN (...).
+     * ¿Tiene acceso a NEST? Es la ÚNICA puerta del sistema.
+     *
+     * Sale de mess_rrhh.accesos —la tabla con la que el modal «Acceso a sistemas»
+     * de Messbook administra qué cards ve cada quien—, buscando el mismo `sistema`
+     * que las demás: el id del div de la card ('divNest').
+     *
+     * Hasta el 2026-09-07 esto era el departamento (27 BI / 47 RRHH). Se cambió
+     * para que dar y quitar el acceso a NEST sea el mismo trámite que para los
+     * otros 16 sistemas del portal, en vez de depender de a qué departamento está
+     * asignado alguien en el catálogo.
+     *
+     * SE VALIDA AQUÍ, EN EL BACKEND, no sólo escondiendo la card: quien pegue la
+     * URL directa sin tener el acceso rebota igual, porque cada página y cada
+     * endpoint pasan por requiereRRHHPage()/requiereRRHHJson().
+     *
+     * OJO: si nadie tiene 'divNest' dado de alta en esa tabla, NADIE entra. Al
+     * desplegar hay que poblarla (ver DESPLIEGUE.md).
      */
-    function esRRHH(mysqli $conn, int $noEmpleado): bool {
+    function tieneAccesoNest(mysqli $conn, int $noEmpleado): bool {
         static $cache = [];
         if (isset($cache[$noEmpleado])) return $cache[$noEmpleado];
 
-        $placeholders = implode(',', array_map('intval', SIVAC_DEPTS_RRHH));
+        $sistema = SIVAC_SISTEMA_CARD;
         $stmt = $conn->prepare(
-            "SELECT 1 FROM mess_rrhh.usuarios
-             WHERE noEmpleado = ? AND departamento IN ($placeholders) AND estatus = 1
-             LIMIT 1"
+            "SELECT 1 FROM mess_rrhh.accesos
+              WHERE noEmpleado = ? AND sistema = ? AND estatus = 1 LIMIT 1"
         );
         if (!$stmt) return $cache[$noEmpleado] = false;
-        $stmt->bind_param('i', $noEmpleado);
+        $stmt->bind_param('is', $noEmpleado, $sistema);
         $stmt->execute();
         $tiene = $stmt->get_result()->num_rows > 0;
         $stmt->close();
         return $cache[$noEmpleado] = $tiene;
+    }
+
+    /**
+     * Alias histórico de tieneAccesoNest().
+     *
+     * Se conserva porque lo llaman una decena de sitios y renombrarlos no cambia
+     * nada del comportamiento. OJO CON EL NOMBRE: desde que el acceso lo decide la
+     * tabla `accesos`, esto ya NO significa «pertenece a Recursos Humanos» sino
+     * «tiene acceso a NEST». Para saber quién es realmente de RRHH —a quién le
+     * llegan los avisos internos— está SIVAC_DEPTS_NOTIF y sivacEmpleadosRRHH().
+     */
+    function esRRHH(mysqli $conn, int $noEmpleado): bool {
+        return tieneAccesoNest($conn, $noEmpleado);
     }
 
     /**
@@ -186,18 +249,10 @@ if (!function_exists('sivacAuthNoEmpleado')) {
         return $ok;
     }
 
-    /** ¿Tiene acceso a la vista de consulta? (RRHH o alta en accesos_consulta). */
-    function tieneConsulta(mysqli $conn, int $noEmpleado): bool {
-        if (esRRHH($conn, $noEmpleado)) return true;
-        $stmt = $conn->prepare(
-            "SELECT 1 FROM accesos_consulta WHERE no_empleado = ? AND activo = 1 LIMIT 1"
-        );
-        $stmt->bind_param('i', $noEmpleado);
-        $stmt->execute();
-        $ok = $stmt->get_result()->num_rows > 0;
-        $stmt->close();
-        return $ok;
-    }
+    // tieneConsulta() y embed_consulta.php SE RETIRARON el 2026-09-07. Era una
+    // vista de solo lectura con el avance de las vacantes (conteos por etapa, sin
+    // datos personales), pero nunca llegó a enlazarse en el portal y no la usaba
+    // nadie. Lo único que se ve desde fuera de RRHH es embed_documentos.php.
 
     /**
      * ¿Tiene concedida esta opción en mess_rrhh.accesos_especiales?
@@ -288,6 +343,38 @@ if (!function_exists('sivacAuthNoEmpleado')) {
     }
 
     /**
+     * ¿Su puesto (mess_rrhh.usuarios.tipo_usr) es de jefe?
+     *
+     * Es la etiqueta del catálogo, NO la jerarquía: dice que alguien es jefe, no a
+     * quién manda. Por eso sirve como PUERTA (¿puede levantar una requisición?) y
+     * nunca como filtro de datos —eso sigue saliendo de sivacSubordinados()—.
+     *
+     * Existe para no dejarle el botón muerto a quien el portal ya dejó pasar: la
+     * pestaña «Mis Vacantes» de Messbook se decide con esta misma lista. Cubre
+     * además al jefe recién nombrado, que todavía no tiene a nadie a su cargo y
+     * justamente por eso necesita pedir su primera contratación.
+     *
+     * Las etiquetas se interpolan sólo desde la constante (jamás desde input).
+     */
+    function tieneTipoUsrJefe(mysqli $conn, int $noEmpleado): bool {
+        static $cache = [];
+        if (isset($cache[$noEmpleado])) return $cache[$noEmpleado];
+
+        $huecos = implode(',', array_fill(0, count(SIVAC_TIPOS_USR_JEFE), '?'));
+        $stmt = $conn->prepare(
+            "SELECT 1 FROM mess_rrhh.usuarios
+              WHERE noEmpleado = ? AND estatus = 1 AND tipo_usr IN ($huecos) LIMIT 1"
+        );
+        if (!$stmt) return $cache[$noEmpleado] = false;
+        $params = array_merge([$noEmpleado], SIVAC_TIPOS_USR_JEFE);
+        $stmt->bind_param('i' . str_repeat('s', count(SIVAC_TIPOS_USR_JEFE)), ...$params);
+        $stmt->execute();
+        $ok = $stmt->get_result()->num_rows > 0;
+        $stmt->close();
+        return $cache[$noEmpleado] = $ok;
+    }
+
+    /**
      * Alcance de vacantes de un jefe: las que solicitó él mismo más las de sus
      * subordinados directos. Devuelve siempre al menos [$noEmpleado], de modo que
      * quien no tiene equipo solo se ve a sí mismo (nunca un alcance vacío, que en
@@ -299,12 +386,25 @@ if (!function_exists('sivacAuthNoEmpleado')) {
         ));
     }
 
-    /** ¿Puede ver el dashboard? RRHH (todo) o un jefe (solo su equipo). */
+    /**
+     * ¿Puede ver el dashboard? SÓLO RRHH/BI.
+     *
+     * Hasta el 2026-09-07 esto era `esRRHH() || esJefe()`, y era la única página
+     * de NEST abierta a alguien sin acceso en mess_rrhh.accesos: un jefe con equipo
+     * entraba y veía el dashboard recortado a sus vacantes y las de su gente. Se
+     * cerró porque la regla quedó en que a NEST no entra nadie que no sea de RRHH
+     * o BI; los jefes siguen su proceso desde la pestaña «Mis Vacantes» del portal
+     * Messbook, que es una vista embebida y no da acceso al sistema.
+     *
+     * sivacAlcanceVacantes() se conserva y inicio.php sigue aplicándola cuando
+     * quien entra no es RRHH: hoy esa rama no se alcanza, pero es la salvaguarda
+     * que impide que reabrir esta puerta destape datos de otras áreas.
+     */
     function tieneDashboard(mysqli $conn, int $noEmpleado): bool {
-        return esRRHH($conn, $noEmpleado) || esJefe($conn, $noEmpleado);
+        return esRRHH($conn, $noEmpleado);
     }
 
-    /** Dashboard requerido (PÁGINAS): rebota al portal si no es RRHH ni jefe. */
+    /** Dashboard requerido (PÁGINAS): rebota al portal si no es RRHH. */
     function requiereDashboardPage(mysqli $conn, int $noEmpleado): void {
         if (!tieneDashboard($conn, $noEmpleado)) {
             header('Location: ../loginMaster/inicio.php');
@@ -328,27 +428,36 @@ if (!function_exists('sivacAuthNoEmpleado')) {
     /**
      * ¿Puede levantar una requisición de vacante?
      *
-     * Tres vías, y cada una cubre algo distinto:
-     *  - Jefe con equipo → la regla de fondo: quien tiene personal a cargo es
-     *    quien pide gente. Se deriva de mess_rrhh.usuarios.jefe (relación real),
-     *    no de la etiqueta tipo_usr, que está incompleta.
+     * OJO: esto NO es acceso a NEST. Sólo habilita la vista embebida del
+     * solicitante (embed_solicitante.php) y sus endpoints, que es lo que el portal
+     * Messbook enseña como pestaña «Mis Vacantes». Entrar al sistema sigue siendo
+     * exclusivo de quien tiene acceso en mess_rrhh.accesos.
+     *
+     * Cuatro vías, y cada una tapa un hueco de la anterior:
+     *  - Puesto de jefe (tipo_usr) → la MISMA lista con la que Messbook decide
+     *    quién ve la pestaña. Va primero porque es la que evita el botón muerto:
+     *    sin ella, un GERENTE recién nombrado veía la ventana y el backend le
+     *    rebotaba. Cubre al jefe que aún no tiene equipo y necesita pedir su
+     *    primera contratación.
+     *  - Jefe con equipo (usuarios.jefe) → la jerarquía real. Hace falta porque la
+     *    etiqueta está incompleta: hay jefes de facto con equipo grande
+     *    registrados como 'ADMINISTRACION' o 'VENTAS'. Es la misma segunda vía del
+     *    selector de solicitante en acciones_vacantes.php, y las dos poblaciones se
+     *    mantienen iguales a propósito: a quien RRHH puede nombrar solicitante,
+     *    el sistema tiene que dejarlo trabajar.
      *  - RRHH → levanta además por su vía normal (acciones_vacantes.php), que no
      *    pasa por VoBo.
      *  - Dueño de alguna vacante → conserva el permiso quien ya tiene un proceso
-     *    abierto aunque hoy no figure como jefe; si no, se le congelaría una
-     *    requisición a medias. Cubre también al solicitante que RRHH capturó a
-     *    mano, sin tener que darlo de alta en ningún lado.
+     *    abierto aunque no cumpla ninguna de las anteriores; si no, se le
+     *    congelaría una requisición a medias.
      *
-     * La regla es «quien ve la pestaña Mis Vacantes, la puede usar»: no tiene
-     * sentido abrirle la ventana a alguien y dejarle el botón deshabilitado, ni
-     * al revés. Es GEMELA de $tieneSivacSolicitante en loginMaster/inicio.php
-     * (OTRO repo): si cambia una, cambia la otra.
-     *
-     * Hasta la liberación del 2026-09-01 había además una lista blanca de la
-     * prueba cerrada (SIVAC_EMPLEADOS_TAB); se quitó aquí y en loginMaster.
+     * Las dos últimas son redes de rescate y NO tienen puerta propia en el portal:
+     * quien sólo califique por ellas tendrá el permiso sin ver la pestaña. Hoy sólo
+     * le pasa a gente de RRHH, que entra por sus propias pantallas.
      */
     function puedeSolicitarVacante(mysqli $conn, int $noEmpleado): bool {
-        return esJefe($conn, $noEmpleado)
+        return tieneTipoUsrJefe($conn, $noEmpleado)
+            || esJefe($conn, $noEmpleado)
             || esRRHH($conn, $noEmpleado)
             || esSolicitanteDeAlguna($conn, $noEmpleado);
     }

@@ -41,7 +41,7 @@ $TRANS_VAC = [
 // al filtro (el select les reinyecta su opción al editar, ver js/vacantes.js).
 // OJO: tipo_usr NO decide permisos —eso lo deriva auth.php de la jerarquía
 // usuarios.jefe—; aquí es sólo el criterio de a quién se le puede asignar.
-const SIVAC_TIPOS_SOLICITANTE = ['JEFE', 'JEFE_LAB', 'JEFE_ENCARGADO'];
+const SIVAC_TIPOS_SOLICITANTE = ['SUPER_USUARIO', 'JEFE', 'GERENTE', 'JEFE_LAB', 'JEFE_ENCARGADO'];
 
 /** Valida que un noEmpleado exista y esté activo en mess_rrhh.usuarios. */
 function empleadoActivo(mysqli $conn, int $no): ?array {
@@ -324,15 +324,35 @@ switch ($accion) {
     }
 
     case 'empleados': {
-        // Directorio para el selector de solicitante: empleados activos cuya
-        // etiqueta tipo_usr está en SIVAC_TIPOS_SOLICITANTE (los jefes).
+        // Directorio para el selector de solicitante. Sale por DOS vías, y hacen
+        // falta las dos porque ninguna basta sola:
+        //
+        //  1. La etiqueta tipo_usr (SIVAC_TIPOS_SOLICITANTE) — es la misma con la
+        //     que el portal Messbook decide quién ve la pestaña «Mis Vacantes».
+        //     Incluye a los jefes recién nombrados, que todavía no tienen a nadie
+        //     a su cargo y por eso no aparecerían por la vía 2, pero que
+        //     justamente necesitan pedir su primera contratación.
+        //
+        //  2. Tener gente a su cargo (usuarios.jefe apunta a él) — la jerarquía
+        //     real. La etiqueta está incompleta: hay jefes de facto con equipo
+        //     grande registrados como 'ADMINISTRACION' o 'VENTAS', y por la vía 1
+        //     se quedarían fuera del selector aunque manden a media planta.
+        //
+        // La comparación de usuarios.jefe (VARCHAR) contra noEmpleado (INT) es
+        // numérica: MySQL castea la cadena, así que no interviene collation.
         $q = trim($_POST['q'] ?? $_GET['q'] ?? '');
         $like = '%' . $q . '%';
         $huecos = implode(',', array_fill(0, count(SIVAC_TIPOS_SOLICITANTE), '?'));
         $stmt = $conn->prepare(
-            "SELECT noEmpleado, nombre, departamento FROM mess_rrhh.usuarios
-             WHERE estatus = 1 AND tipo_usr IN ($huecos) AND (nombre LIKE ? OR noEmpleado LIKE ?)
-             ORDER BY nombre LIMIT 50"
+            "SELECT u.noEmpleado, u.nombre, u.departamento
+               FROM mess_rrhh.usuarios u
+              WHERE u.estatus = 1
+                AND (u.tipo_usr IN ($huecos)
+                     OR EXISTS (SELECT 1 FROM mess_rrhh.usuarios s
+                                 WHERE s.jefe = u.noEmpleado AND s.estatus = 1
+                                   AND s.noEmpleado <> u.noEmpleado))
+                AND (u.nombre LIKE ? OR u.noEmpleado LIKE ?)
+              ORDER BY u.nombre LIMIT 50"
         );
         $params = array_merge(SIVAC_TIPOS_SOLICITANTE, [$like, $like]);
         $stmt->bind_param(str_repeat('s', count(SIVAC_TIPOS_SOLICITANTE)) . 'ss', ...$params);

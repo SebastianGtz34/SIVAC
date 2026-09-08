@@ -1,4 +1,4 @@
-/* configuracion.js — Catálogos y accesos de consulta (RRHH). */
+/* configuracion.js — Catálogos de NEST (RRHH). */
 $(function () {
     var URL = 'acciones_configuracion.php';
 
@@ -90,32 +90,8 @@ $(function () {
         });
     });
 
-    /* ---- Accesos de consulta ---- */
-    function cargarCons() {
-        ajaxPost(URL, { accion: 'listar_consulta' }, function (err, res) {
-            var $b = $('#tablaCons tbody').empty();
-            if (err || !res || !res.success) return;
-            res.data.forEach(function (a) {
-                $b.append('<tr><td>' + escHtml(a.nombre) + ' <span class="text-muted small">#' + escHtml(a.no_empleado) + '</span></td>'
-                    + '<td>' + escHtml(a.comentario || '') + '</td>'
-                    + '<td class="text-center">' + (parseInt(a.activo) ? '<span class="badge badge-success">Sí</span>' : '<span class="badge badge-secondary">No</span>') + '</td>'
-                    + '<td class="text-right"><button class="btn btn-sm btn-outline-secondary btnToggleCons" data-id="' + a.id + '">' + (parseInt(a.activo) ? 'Desactivar' : 'Activar') + '</button></td></tr>');
-            });
-        });
-    }
-    $('#formConsulta').on('submit', function (e) {
-        e.preventDefault();
-        ajaxPost(URL, { accion: 'guardar_consulta', no_empleado: $('#cons_noEmpleado').val(), comentario: $('#cons_comentario').val() }, function (err, res) {
-            if (res && res.success) { $('#formConsulta')[0].reset(); mostrarToast(res.message, 'success'); cargarCons(); }
-            else { mostrarToast((res && res.message) || 'Error.', 'error'); }
-        });
-    });
-    $('#tablaCons').on('click', '.btnToggleCons', function () {
-        var id = $(this).data('id');
-        ajaxPost(URL, { accion: 'toggle_consulta', id: id }, function (err, res) {
-            if (res && res.success) { cargarCons(); }
-        });
-    });
+    // Los accesos de consulta y de documentos se conceden en Messbook
+    // (mess_rrhh.accesos_especiales), así que esta pantalla ya no los administra.
 
-    cargarTipos(); cargarDest(); cargarCons();
+    cargarTipos(); cargarDest();
 });
