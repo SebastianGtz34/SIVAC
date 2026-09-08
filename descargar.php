@@ -80,15 +80,20 @@ if ($tipo === 'cv') {
         echo 'Archivo no encontrado.';
         exit;
     }
-    // Permiso POR PERSONA, no por ficha: el documento cuelga de la ficha en la que
-    // se subió, pero si esa persona también es candidata en la vacante de quien
-    // pide el archivo, esa documentación es parte de su proceso. Comprobar sólo la
-    // ficha dueña dejaba el documento visible en la lista y en 403 al abrirlo.
-    //
-    // El acceso especial 'documentos' NO entra aquí a propósito: esa vista es de
-    // CONSULTA —ver qué hay y si está validado—, no de descarga. Los archivos son
-    // datos personales del candidato y no salen de RRHH y su solicitante.
-    if (!$esRRHH && !esSolicitanteDePersona($conn, $noEmp, (int)$row['id_candidato'])) {
+    // Quién puede abrir un documento:
+    //  - Quien tiene acceso a NEST, siempre.
+    //  - El solicitante, POR PERSONA y no por ficha: el documento cuelga de la
+    //    ficha en la que se subió, pero si esa persona también es candidata en su
+    //    vacante, esa documentación es parte de su proceso. Comprobar sólo la ficha
+    //    dueña dejaba el documento visible en la lista y en 403 al abrirlo.
+    //  - El acceso especial 'verDocumentos' (alta de nómina), pero SÓLO sobre los
+    //    ya validados: es exactamente lo que lista embed_documentos.php, y sin esa
+    //    condición un id a mano en la URL destaparía los pendientes y rechazados,
+    //    que son justo los que RRHH todavía no aprueba.
+    $puedeDoc = $esRRHH
+        || esSolicitanteDePersona($conn, $noEmp, (int)$row['id_candidato'])
+        || ($row['validacion'] === 'validado' && tieneAccesoEspecial($conn, $noEmp, 'verDocumentos'));
+    if (!$puedeDoc) {
         http_response_code(403);
         header('Content-Type: text/plain; charset=utf-8');
         echo 'Sin permiso para descargar este archivo.';

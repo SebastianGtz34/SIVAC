@@ -12,7 +12,6 @@ include 'encabezado.php';
 <ul class="nav nav-tabs mb-3" id="configTabs" role="tablist">
     <li class="nav-item"><a class="nav-link active" data-toggle="tab" href="#tabDocs" role="tab">Tipos de documento</a></li>
     <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#tabDest" role="tab">Notificaciones de alta</a></li>
-    <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#tabCons" role="tab">Accesos de consulta</a></li>
 </ul>
 
 <div class="tab-content">
@@ -40,21 +39,8 @@ include 'encabezado.php';
         </div></div>
     </div>
 
-    <!-- Accesos de consulta -->
-    <div class="tab-pane fade" id="tabCons" role="tabpanel">
-        <div class="card"><div class="card-body">
-            <p class="text-muted small">Empleados con acceso de solo lectura al avance de vacantes (p. ej. dirección).</p>
-            <form class="form-inline mb-3" id="formConsulta">
-                <input type="number" class="form-control form-control-sm mr-2" id="cons_noEmpleado" placeholder="N° empleado" required>
-                <input type="text" class="form-control form-control-sm mr-2" id="cons_comentario" placeholder="Comentario (opcional)">
-                <button type="submit" class="btn btn-primary btn-sm">Conceder acceso</button>
-            </form>
-            <table class="table table-sm" id="tablaCons">
-                <thead><tr><th>Empleado</th><th>Comentario</th><th class="text-center">Activo</th><th></th></tr></thead>
-                <tbody></tbody>
-            </table>
-        </div></div>
-    </div>
+    <!-- Los accesos de consulta y de documentos se conceden en Messbook, en
+         mess_rrhh.accesos_especiales (sistema 'NEST'), no desde aquí. -->
 </div>
 
 <!-- Modal tipo -->

@@ -16,6 +16,7 @@ require_once 'includes/accesos.php';
 require_once 'includes/datos_alta.php';
 require_once 'includes/catalogos.php';
 require_once 'includes/alta_avisos.php';
+require_once 'includes/capacitacion.php';
 
 if (sivacPostDesbordado()) {
     echo json_encode(['success' => false, 'message' => 'El archivo excede el tamaño máximo permitido por el servidor.']);
@@ -760,14 +761,33 @@ switch ($accion) {
         $ficha = fichaAlta($conn, $c, $ct['fecha_ingreso'], $viaticos, $celular, $equipo);
         $res   = mandarAvisosAlta($conn, $c, $ficha, $areas);
 
+        // Cuenta en la plataforma de capacitación. Va DESPUÉS de que el alta ya
+        // quedó registrada y NUNCA la aborta: si la plataforma falla, el
+        // colaborador está dado de alta igual y lo único pendiente es su cuenta de
+        // cursos. El resultado se cuelga del mismo toast que las notificaciones.
+        // El correo es el personal: es el que RRHH capturó y el corporativo todavía
+        // no existe (lo crea Sistemas al recibir su notificación).
+        $cap = sivacCapacitacionCrearCuenta($conn, [
+            'nombre'    => $c['nombre'],
+            'apellidos' => $c['apellidos'] ?? '',
+            'correo'    => $c['correo'],
+            'puesto'    => $c['puesto'],
+            'nave'      => $ficha['sede'] ?? '',
+            'area'      => $ficha['area'] ?? '',
+        ]);
+        $msgCap = $cap['ok']
+            ? ($cap['ya_existia'] ? ' Ya tenía cuenta de capacitación.'
+                                  : ' Cuenta de capacitación creada (' . $cap['usuario'] . ').')
+            : ' ⚠️ No se pudo crear su cuenta de capacitación: ' . $cap['mensaje'];
+
         // Un área marcada sin correo cargado NO detiene el alta, pero RRHH tiene
         // que enterarse: si no, cree que Nóminas ya recibió su aviso. Lo mismo
         // con las que fallaron: el alta quedó hecha (success = true) pero el
         // toast sale en ámbar para que nadie la dé por avisada.
         $sinCorreo = sivacAreasAltaSinCorreo($conn, $areas);
-        $msg = 'Alta completada.' . mensajeAvisosAlta($res, $sinCorreo);
+        $msg = 'Alta completada.' . mensajeAvisosAlta($res, $sinCorreo) . $msgCap;
         responder(true, $msg, [
-            'aviso'    => ($res['fallidas'] || $sinCorreo) ? 1 : 0,
+            'aviso'    => ($res['fallidas'] || $sinCorreo || !$cap['ok']) ? 1 : 0,
             'fallidas' => array_keys($res['fallidas']),
         ]);
     }

@@ -46,15 +46,22 @@ económica (pasan de entrevistado directo a documentación).
 ## Roles
 | Rol | Quién | Acceso |
 |---|---|---|
-| RRHH / Reclutamiento | Departamentos **27 (BI)** y **47 (RRHH)** — constante `SIVAC_DEPTS_RRHH` en `auth.php` | Sistema completo (card en loginMaster). Da el VoBo y entrevista antes que el jefe |
-| Jefe / gerente | Empleado con **al menos un subordinado activo** (`mess_rrhh.usuarios.jefe` apunta a él) | Levanta requisiciones (nacen `pendiente_vobo`) y ve el dashboard **acotado a su equipo** |
+| Acceso a NEST | Fila activa en **`mess_rrhh.accesos`** con `sistema = 'divNest'` — la tabla del modal «Acceso a sistemas» del portal. Constante `SIVAC_SISTEMA_CARD` | **Todo el sistema**: dashboard, vacantes, candidatos, contrataciones y configuración. Da el VoBo y entrevista antes que el jefe |
+| Jefe / gerente | Puesto en `tipo_usr` (`SIVAC_TIPOS_USR_JEFE`) **o** con al menos un subordinado activo (`mess_rrhh.usuarios.jefe`) | Levanta requisiciones (nacen `pendiente_vobo`) desde su pestaña del portal. **No entra a NEST** |
 | Solicitante | Dueño de la vacante (`vacantes.no_empleado_solicitante`), cualquier depto | Pestaña "Mis Vacantes" (iframe `embed_solicitante.php`): aprueba/descarta CVs y da 2 fechas de entrevista |
-| Consulta | Tabla `accesos_consulta` (la administra RRHH en Configuración) | `embed_consulta.php`, solo lectura sin datos personales |
+| Documentos | `mess_rrhh.accesos_especiales`, sistema `NEST`, opción `verDocumentos` (se concede en Messbook) | `embed_documentos.php`: expedientes ya validados, para el alta de nómina. Solo consulta, sin descarga |
 
-El rol de jefe **se deriva de la jerarquía real**, no de la etiqueta
-`usuarios.tipo_usr`: esa etiqueta está incompleta (hay 30 empleados con
-subordinados activos y solo 21 etiquetados), así que gatear por ella dejaría
-fuera a jefes de facto. Ver `sivacSubordinados()` / `esJefe()` en `auth.php`.
+El rol de jefe acepta **las dos vías, y hacen falta las dos**: la etiqueta
+`usuarios.tipo_usr` está incompleta (hay jefes de facto con equipo grande
+registrados como `ADMINISTRACION` o `VENTAS`), pero la jerarquía sola falla por el
+lado contrario — el jefe recién nombrado todavía no tiene a nadie a su cargo y es
+justo quien necesita pedir su primera contratación.
+
+Dónde manda cada una: la **etiqueta** sirve de puerta, porque es con la que
+Messbook decide qué pestañas enseña y dejar el permiso corto respecto del portal
+deja botones muertos. La **jerarquía** es la única que sirve para filtrar datos
+(`sivacSubordinados()` / `sivacAlcanceVacantes()`): la etiqueta dice que alguien es
+jefe, no *a quién* manda. Ver `puedeSolicitarVacante()` en `auth.php`.
 
 ## Base de datos: un solo archivo
 **`database.sql` es el ÚNICO archivo SQL del proyecto.** Trae el esquema completo
@@ -282,7 +289,7 @@ Además: `conn.php` y `config_correo.php` gitignored (hay `.example` committeado
    cargo, o dueño de alguna vacante en `mess_sivac.vacantes`, cross-DB con el
    `$conn` existente). Este último es **gemelo de `puedeSolicitarVacante()`** en
    `auth.php`: la pestaña y el permiso se mueven juntos.
-2. **Card** `id="divSivac"` en el tab `#tabSistemas` (junto a Cotizador IA),
+2. **Card** `id="divNest"` en el tab `#tabSistemas` (junto a Cotizador IA),
    envuelta en `<?php if ($tieneSivac): ?>` → enlaza `../SIVAC/`.
 3. **Pestaña "Mis Vacantes"** (`#tabSivacSol-tab`, solo si
    `$tieneSivacSolicitante`) con `<iframe data-src="../SIVAC/embed_solicitante.php">`

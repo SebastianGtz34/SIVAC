@@ -343,15 +343,14 @@ CREATE TABLE IF NOT EXISTS notificaciones (
 -- ----------------------------------------------------------------------------
 -- Accesos de consulta (vista read-only global, p. ej. dirección)
 -- ----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS accesos_consulta (
-    id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
-    no_empleado INT UNSIGNED NOT NULL,
-    comentario  VARCHAR(200) NULL,
-    activo      TINYINT(1) NOT NULL DEFAULT 1,
-    fecha_creacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    UNIQUE KEY uq_consulta_empleado (no_empleado)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- accesos_consulta SE RETIRÓ el 2026-09-07, junto con la vista que gateaba
+-- (embed_consulta.php): nunca llegó a enlazarse en el portal y no la usaba nadie.
+-- El único acceso que se concede desde fuera de RRHH es el de la vista de
+-- documentos, y vive en mess_rrhh.accesos_especiales (sistema 'NEST', opción
+-- 'verDocumentos'), la tabla compartida del ecosistema.
+--
+-- La tabla vieja NO se borra de las instalaciones que ya existen: dejarla ahí no
+-- estorba y conserva el registro de a quién se le había dado acceso.
 
 -- NOTA: los accesos ESPECIALES (como el de ver documentos para el alta de nómina)
 -- NO viven aquí. Son la tabla compartida `mess_rrhh.accesos_especiales`, que ya

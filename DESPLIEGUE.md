@@ -117,6 +117,34 @@ tipos de `database.sql` (tabla `documentos`). La consulta de la ficha del
 candidato las pide por nombre: sin ellas, `prepare()` devolvía `false` y la ficha
 no abría —el `SELECT *` de otras pantallas no lo delata, por eso pasó inadvertido—.
 
+## 🚨 ANTES DE SUBIR: poblar el acceso a NEST o NADIE ENTRA
+
+Desde el 2026-09-07 la puerta de NEST es `mess_rrhh.accesos` con
+`sistema = 'divNest'`, la misma tabla del modal «Acceso a sistemas» del portal.
+Ya no es el departamento. **Si esa tabla no tiene filas para `divNest`, ni RRHH
+puede entrar**: toda página redirige y todo endpoint responde 403.
+
+Correr esto **junto con la subida del código**, no después:
+
+```sql
+INSERT INTO mess_rrhh.accesos (noEmpleado, sistema, estatus)
+SELECT noEmpleado, 'divNest', 1
+  FROM mess_rrhh.usuarios
+ WHERE estatus = 1 AND departamento IN (27, 47);
+```
+
+Verificar que devuelva al menos las personas de RRHH y BI:
+
+```sql
+SELECT a.noEmpleado, u.nombre, a.estatus
+  FROM mess_rrhh.accesos a
+  LEFT JOIN mess_rrhh.usuarios u ON u.noEmpleado = a.noEmpleado
+ WHERE a.sistema = 'divNest';
+```
+
+De ahí en adelante los accesos se dan y se quitan desde el modal del portal, igual
+que para los otros 16 sistemas. `estatus = 0` revoca sin borrar la fila.
+
 ## ⚠️ Lo que NO viaja con el proyecto (hay que crearlo en el destino)
 - **`conn.php`** — está *gitignored*. Copiar de `conn.example.php` y poner las
   credenciales MySQL del equipo destino. **Sin esto, nada conecta.**
