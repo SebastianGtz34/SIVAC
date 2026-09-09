@@ -115,7 +115,8 @@ $(function () {
         $('#bloqueRequerimientos').find('input').prop('disabled', docSoloDatos);
         $('#docs_id').val(docCandidato);
         $('#docsTitulo').text((docSoloDatos ? 'Expediente — ' : 'Documentación — ') + $(this).data('nombre'));
-        $('#ingreso_fecha').val(''); $('#prorroga_fecha').val('');
+        $('#ingreso_fecha').val(''); 
+        $('#prorroga_fecha').val('');
         $('#resumenFechas').empty();   // no dejar a la vista las fechas del candidato anterior
         $('#formAvisosAlta').removeClass('d-none');
         cargarFicha();

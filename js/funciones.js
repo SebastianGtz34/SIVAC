@@ -145,13 +145,14 @@ function formatearFecha(fecha) {
         + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
 }
 
-/** Formatea solo la fecha 'YYYY-MM-DD' → 'DD/MM/YYYY'. */
 function formatearSoloFecha(fecha) {
     if (!fecha) return '—';
-    var d = new Date(String(fecha).replace(' ', 'T'));
-    if (isNaN(d)) return fecha;
-    var pad = function (n) { return String(n).padStart(2, '0'); };
-    return pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear();
+
+    var partes = String(fecha).substring(0, 10).split('-');
+
+    if (partes.length !== 3) return fecha;
+
+    return `${partes[2]}/${partes[1]}/${partes[0]}`;
 }
 
 /** Formatea tamaño en bytes → B/KB/MB. */
