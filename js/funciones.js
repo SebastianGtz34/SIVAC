@@ -3,6 +3,40 @@
    Stack: jQuery 3.6 + Bootstrap 4.6 + SweetAlert2 + DataTables (es-MX local)
    ───────────────────────────────────────── */
 
+/**
+ * Deja escribir en un SweetAlert abierto desde dentro de un modal de Bootstrap.
+ *
+ * EL PROBLEMA: Bootstrap 4 engancha un `focusin` en todo el documento y, en
+ * cuanto el foco cae en algo que no está dentro del modal, se lo regresa al
+ * modal (modal.js → _enforceFocus). SweetAlert cuelga su cuadro del <body>, o
+ * sea FUERA del modal, así que al hacer clic en su caja de texto el modal
+ * recuperaba el foco al instante y no se podía teclear ni una letra. Se veía al
+ * rechazar un documento desde «Documentación», que es un SweetAlert con textarea
+ * lanzado desde el modal #modalDocs.
+ *
+ * EL PARCHE conserva la trampa de foco —es lo que mantiene el modal accesible y
+ * lo que evita que el tabulador se escape a la página de atrás— y sólo le agrega
+ * una excepción: lo que viva dentro de .swal2-container sí puede quedarse con el
+ * foco. Va aquí, y no en la pantalla donde apareció el error, porque el choque
+ * se repite en CUALQUIER SweetAlert con campos que se abra desde un modal.
+ *
+ * Se respeta el namespace `focusin.bs.modal` del original para que el `.off()`
+ * que Bootstrap hace al cerrar el modal siga desenganchando este handler.
+ */
+if (window.jQuery && $.fn.modal && $.fn.modal.Constructor) {
+    $.fn.modal.Constructor.prototype._enforceFocus = function () {
+        var modal = this;
+        $(document)
+            .off('focusin.bs.modal')
+            .on('focusin.bs.modal', function (e) {
+                if (document === e.target || modal._element === e.target) return;
+                if ($(modal._element).has(e.target).length) return;
+                if ($(e.target).closest('.swal2-container').length) return;  // la excepción
+                modal._element.focus();
+            });
+    };
+}
+
 /** Etiquetas legibles de los estatuss del pipeline (espejo de includes/flujo.php).
  *  Si cambias uno, cámbialo también allá: el backend es la fuente de verdad. */
 window.SIVAC_estatusS = {
