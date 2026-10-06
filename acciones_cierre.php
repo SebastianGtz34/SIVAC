@@ -74,6 +74,18 @@ function avisoFechaDocs(?string $limite, ?string $ingreso): string {
 }
 
 /**
+ * Fecha límite de documentos (d/m/Y) para el diálogo del enlace del portal, o
+ * null si no hay. Va junto al enlace porque RRHH se la dice al candidato en el
+ * mismo mensaje; antes sólo se veía la vigencia del enlace, que es otra fecha.
+ */
+function limiteDocsTexto(mysqli $conn, int $id): ?string {
+    $stmt = $conn->prepare("SELECT fecha_limite_documentos FROM contrataciones WHERE id_candidato = ? LIMIT 1");
+    $stmt->bind_param('i', $id); $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc(); $stmt->close();
+    return !empty($row['fecha_limite_documentos']) ? date('d/m/Y', strtotime($row['fecha_limite_documentos'])) : null;
+}
+
+/**
  * Ficha del colaborador para los correos de alta, resuelta a NOMBRES: quien la
  * recibe está fuera del sistema y no puede traducir un id de departamento, de
  * nave ni un número de empleado. La comparten completar_alta y el reenvío, para
@@ -388,15 +400,15 @@ switch ($accion) {
 
         if ($modo === 'nuevo') {
             // sivacGenerarAcceso() devuelve ['token','pass','expira']: son DOS
-            // secretos, y ésta es la única vez que la contraseña se puede leer
-            // (de ella sólo se guarda el hash). Si no se devuelve aquí, RRHH se
-            // queda con un enlace que nadie puede abrir.
+            // secretos y RRHH necesita los dos; si no se devolviera la
+            // contraseña, se quedaría con un enlace que nadie puede abrir.
             $acc = sivacGenerarAcceso($conn, $id, $noEmp);
             responder(true, 'Enlace nuevo generado (vigencia 15 días). El anterior quedó invalidado.', [
                 'url'    => sivacUrlPortal($acc['token']),
                 'pass'   => sivacPortalPassBonita($acc['pass']),
                 'nuevo'  => 1,
                 'expira' => date('d/m/Y', strtotime($acc['expira'])),
+                'limite_docs' => limiteDocsTexto($conn, $id),
             ]);
         }
 
@@ -410,30 +422,34 @@ switch ($accion) {
                 'expira'  => date('d/m/Y', strtotime($acceso['fecha_expira'])),
             ]);
         }
-        // `tiene_pass` para que la UI no mienta: de la contraseña sólo vive el
-        // hash, así que al repetir el enlace NO se puede volver a mostrar. Pero
-        // los accesos anteriores al 2026-08-14 abren SIN contraseña, y decirle a
-        // RRHH que "no se puede mostrar" una que no existe lo manda a buscarla.
+        // La contraseña se repite igual que el enlace (retro 2026-10-06). Las
+        // anteriores a esa fecha sólo tienen hash: `tiene_pass` sin `pass` le dice
+        // a la UI que existe pero hay que restablecerla para verla. Y los accesos
+        // anteriores al 2026-08-14 abren SIN contraseña: decirle a RRHH que "no
+        // se puede mostrar" una que no existe lo manda a buscarla.
+        $passClaro = (string)($acceso['pass'] ?? '');
         responder(true, 'Es el mismo enlace que ya tiene el candidato.', [
             'vigente'    => 1,
             'url'        => sivacUrlPortal($acceso['token']),
             'expira'     => date('d/m/Y', strtotime($acceso['fecha_expira'])),
             'tiene_pass' => sivacPortalRequiereClave($acceso) ? 1 : 0,
+            'pass'       => $passClaro !== '' ? sivacPortalPassBonita($passClaro) : null,
+            'limite_docs' => limiteDocsTexto($conn, $id),
         ]);
     }
 
     /**
      * Contraseña NUEVA para el enlace que el candidato ya tiene.
      *
-     * Se RESTABLECE, no se recupera: de la contraseña sólo vive el hash. Cambia
-     * la clave sin tocar el enlace ni lo que el candidato lleve entregado —
+     * Cambia la clave sin tocar el enlace ni lo que el candidato lleve entregado —
      * regenerar el enlace, que era la única salida que tenía RRHH, lo dejaba
      * tirado a media documentación. La puerta del portal ya le promete al
      * candidato «pídele a Recursos Humanos que te la restablezca»: esto es lo
      * que hace que esa frase sea cierta.
      *
      * Sirve además para ponerle contraseña a un enlace anterior al 2026-08-14,
-     * que hoy abre sin ella.
+     * que hoy abre sin ella, y para que una contraseña anterior al 2026-10-06
+     * (de la que sólo hay hash) quede consultable.
      */
     case 'restablecer_pass': {
         $id = (int)($_POST['id'] ?? 0);
@@ -451,6 +467,7 @@ switch ($accion) {
         responder(true, 'Contraseña restablecida. El enlace es el mismo de siempre.', [
             'pass'   => sivacPortalPassBonita($pass),
             'expira' => date('d/m/Y', strtotime($acceso['fecha_expira'])),
+            'limite_docs' => limiteDocsTexto($conn, $id),
         ]);
     }
 
@@ -640,9 +657,10 @@ switch ($accion) {
         if (!$c) responder(false, 'Candidato no encontrado.');
         if ($c['estatus'] !== 'documentacion') responder(false, 'El candidato no está en documentación.');
 
-        $stmt = $conn->prepare("UPDATE contrataciones SET reglamento_enviado = NOW() WHERE id_candidato = ?");
-        $stmt->bind_param('i', $id); $stmt->execute(); $stmt->close();
-
+        // Primero el correo y DESPUÉS la marca: completar el alta exige
+        // reglamento_enviado, así que marcarlo sin que el correo saliera dejaba
+        // dar de alta a alguien que nunca recibió el reglamento. El PDF va en el
+        // repo (doc/), excepción al *.pdf del .gitignore.
         notificarEvento($conn, 'reglamento', [
             'id_candidato' => $id, 'id_vacante' => (int)$c['id_vacante'],
             'titulo' => 'Reglamento de ingreso enviado — ' . $c['nombre'],
@@ -650,8 +668,18 @@ switch ($accion) {
             'correo_asunto' => 'MESS — Reglamento de ingreso',
             'correo_titulo' => 'Reglamento de ingreso',
             'correo_html' => 'Hola ' . htmlspecialchars($c['nombre']) . ',<br><br>Adjunto encontrarás el reglamento de ingreso. Por favor confirma su lectura con el área de Recursos Humanos.',
-        ]);
-        responder(true, 'Reglamento enviado.');
+            'correo_adjuntos' => [[
+                'ruta'   => __DIR__ . '/doc/RESUMEN DEL REGLAMENTO INTERIOR DE TRABAJO.pdf',
+                'nombre' => 'Reglamento interior de trabajo - MESS.pdf',
+            ]],
+        ], $envio);
+        if (!$envio['ok']) {
+            responder(false, 'No se pudo enviar el reglamento: ' . ($envio['error'] ?: 'el candidato no tiene correo registrado.'));
+        }
+
+        $stmt = $conn->prepare("UPDATE contrataciones SET reglamento_enviado = NOW() WHERE id_candidato = ?");
+        $stmt->bind_param('i', $id); $stmt->execute(); $stmt->close();
+        responder(true, 'Reglamento enviado a ' . $c['correo'] . '.');
     }
 
     case 'completar_alta': {

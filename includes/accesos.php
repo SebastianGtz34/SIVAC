@@ -11,10 +11,11 @@
  *      database.sql). Regenerar un enlace revoca el anterior, así que "repetir" y
  *      "generar nuevo" son dos operaciones distintas: la primera no toca nada, la
  *      segunda deja al candidato con el enlace viejo inservible.
- *   2. La CONTRASEÑA → 8 caracteres que genera el sistema y dicta RRHH. De ésta
- *      SÓLO se guarda el hash (password_hash), nunca el claro: quien lea la base
- *      ve el enlace pero no puede entrar, y si el candidato la pierde se
- *      RESTABLECE —enlace y avance intactos—, no se recupera.
+ *   2. La CONTRASEÑA → 8 caracteres que genera el sistema y dicta RRHH. Se
+ *      compara contra su hash (password_hash) y, desde la retro del 2026-10-06,
+ *      el claro se guarda también en `pass` para que RRHH la pueda volver a
+ *      consultar, igual que el enlace. Decisión consciente: quien lea la base
+ *      tiene los dos factores de los accesos vigentes. Al revocar se borran.
  *
  * Por qué las dos: el enlace viaja por WhatsApp, se reenvía, queda en el historial
  * del navegador y en los logs del servidor. Detrás de él está la CURP, el RFC y el
@@ -46,12 +47,12 @@ if (!function_exists('sivacGenerarAcceso')) {
     /**
      * Genera un acceso nuevo (enlace + contraseña) para un candidato e invalida
      * los anteriores activos. Devuelve ['token','pass','expira'] con los dos
-     * secretos EN CLARO: es la única vez que la contraseña se puede leer.
+     * secretos EN CLARO.
      */
     function sivacGenerarAcceso(mysqli $conn, int $idCandidato, int $creadoPor, int $diasValidez = SIVAC_PORTAL_VIGENCIA_DEF): array {
         // Revoca los enlaces previos del candidato (regenerar = invalidar el anterior).
-        // El claro se borra al revocar: en la BD sólo vive el del enlace que hoy sirve.
-        $upd = $conn->prepare("UPDATE candidato_accesos SET activo = 0, token = NULL WHERE id_candidato = ? AND activo = 1");
+        // Los claros se borran al revocar: en la BD sólo viven los del acceso que hoy sirve.
+        $upd = $conn->prepare("UPDATE candidato_accesos SET activo = 0, token = NULL, pass = NULL WHERE id_candidato = ? AND activo = 1");
         $upd->bind_param('i', $idCandidato);
         $upd->execute();
         $upd->close();
@@ -64,10 +65,10 @@ if (!function_exists('sivacGenerarAcceso')) {
         $expira = date('Y-m-d H:i:s', strtotime('+' . $diasValidez . ' days'));
 
         $stmt = $conn->prepare(
-            "INSERT INTO candidato_accesos (id_candidato, token_hash, token, pass_hash, fecha_expira, creado_por)
-             VALUES (?, ?, ?, ?, ?, ?)"
+            "INSERT INTO candidato_accesos (id_candidato, token_hash, token, pass_hash, pass, fecha_expira, creado_por)
+             VALUES (?, ?, ?, ?, ?, ?, ?)"
         );
-        $stmt->bind_param('issssi', $idCandidato, $hash, $token, $ph, $expira, $creadoPor);
+        $stmt->bind_param('isssssi', $idCandidato, $hash, $token, $ph, $pass, $expira, $creadoPor);
         $stmt->execute();
         $stmt->close();
         return ['token' => $token, 'pass' => $pass, 'expira' => $expira];
@@ -82,10 +83,12 @@ if (!function_exists('sivacGenerarAcceso')) {
      * quien llama debe decirlo en vez de fingir que no existe. `pass_hash` viene
      * NULL en los enlaces anteriores a la contraseña: siguen abriendo sin ella
      * (no se deja tirado a nadie a media documentación) y RRHH puede ponérsela.
+     * `pass` (el claro) viene NULL en las contraseñas anteriores al 2026-10-06:
+     * existen pero no se pueden mostrar hasta restablecerlas.
      */
     function sivacAccesoVigente(mysqli $conn, int $idCandidato): ?array {
         $stmt = $conn->prepare(
-            "SELECT id, token, pass_hash, fecha_expira FROM candidato_accesos
+            "SELECT id, token, pass_hash, pass, fecha_expira FROM candidato_accesos
              WHERE id_candidato = ? AND activo = 1 AND fecha_expira > NOW()
              ORDER BY id DESC LIMIT 1"
         );
@@ -135,7 +138,7 @@ if (!function_exists('sivacGenerarAcceso')) {
 
     /** Invalida todos los accesos activos de un candidato (p. ej. al completar el alta). */
     function sivacRevocarAccesos(mysqli $conn, int $idCandidato): void {
-        $upd = $conn->prepare("UPDATE candidato_accesos SET activo = 0, token = NULL WHERE id_candidato = ? AND activo = 1");
+        $upd = $conn->prepare("UPDATE candidato_accesos SET activo = 0, token = NULL, pass = NULL WHERE id_candidato = ? AND activo = 1");
         $upd->bind_param('i', $idCandidato);
         $upd->execute();
         $upd->close();
@@ -195,17 +198,17 @@ if (!function_exists('sivacGenerarAcceso')) {
     /**
      * Pone una contraseña nueva a un acceso EXISTENTE, sin tocar el enlace ni el
      * avance del candidato. Es lo que hace «Restablecer contraseña» y también lo
-     * que le pone clave a un enlace viejo que no la tenía. Devuelve el claro (la
-     * única vez que se puede leer). Las sesiones abiertas con la clave anterior
-     * dejan de valer, porque la huella de la sesión se saca del hash.
+     * que le pone clave a un enlace viejo que no la tenía. Devuelve el claro, que
+     * también queda guardado para volver a consultarlo. Las sesiones abiertas con
+     * la clave anterior dejan de valer, porque la huella de la sesión se saca del hash.
      */
     function sivacPortalAsignarPass(mysqli $conn, int $idAcceso): string {
         $pass = sivacPortalPassNueva();
         $hash = password_hash($pass, PASSWORD_DEFAULT);
         $stmt = $conn->prepare(
-            "UPDATE candidato_accesos SET pass_hash = ?, intentos = 0, bloqueado_hasta = NULL WHERE id = ?"
+            "UPDATE candidato_accesos SET pass_hash = ?, pass = ?, intentos = 0, bloqueado_hasta = NULL WHERE id = ?"
         );
-        $stmt->bind_param('si', $hash, $idAcceso);
+        $stmt->bind_param('ssi', $hash, $pass, $idAcceso);
         $stmt->execute();
         $stmt->close();
         return $pass;

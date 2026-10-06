@@ -179,10 +179,12 @@ CREATE TABLE IF NOT EXISTS citas (
                   COMMENT 'entrevista del jefe/solicitante (única agendada en el sistema)',
     opcion1       DATETIME NOT NULL,
     opcion2       DATETIME NOT NULL,
-    estatus       ENUM('pendiente','confirmada','realizada','cancelada')
-                  NOT NULL DEFAULT 'pendiente',
+    estatus       ENUM('pendiente','confirmada','realizada','cancelada','rechazada')
+                  NOT NULL DEFAULT 'pendiente'
+                  COMMENT 'rechazada = el candidato no pudo en ninguna de las dos; el jefe propone otras',
     opcion_confirmada TINYINT(1) NULL COMMENT '1 u 2',
     fecha_confirmada  DATETIME NULL COMMENT 'fecha/hora final de la entrevista',
+    fecha_candidato   DATETIME NULL COMMENT 'otra fecha que pidió el candidato al rechazar las dos (opcional)',
     duracion_aprox VARCHAR(100) NOT NULL,
     confirmada_por    INT UNSIGNED NULL COMMENT 'RRHH que confirmó',
     notas         TEXT NULL,
@@ -377,9 +379,11 @@ CREATE TABLE IF NOT EXISTS notificaciones (
 -- quien pueda leer la BD ve los enlaces vigentes, que caducan a los 15 días y
 -- sólo abren el portal de ese candidato.
 --
--- De la CONTRASEÑA, en cambio, SÓLO vive el hash: no se puede volver a mostrar y
--- no se recupera, se RESTABLECE (enlace y avance del candidato intactos). Por eso
--- quien lea esta tabla ve el enlace pero no puede entrar.
+-- La CONTRASEÑA se compara contra `pass_hash`, y desde el 2026-10-06 se guarda
+-- además en claro en `pass`, por la misma razón que el token: que RRHH pueda
+-- volver a consultarla en vez de restablecerla. Decisión consciente del usuario:
+-- quien lea esta tabla tiene los DOS factores de los accesos vigentes. Al
+-- revocar un acceso se borran los dos claros.
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS candidato_accesos (
     id           INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -387,6 +391,7 @@ CREATE TABLE IF NOT EXISTS candidato_accesos (
     token_hash   CHAR(64) NOT NULL COMMENT 'hash SHA-256 del token; es lo que se compara al entrar',
     token        CHAR(64) NULL COMMENT 'el mismo token en claro, para poder repetir el enlace; NULL en los accesos anteriores al 2026-08-12',
     pass_hash    VARCHAR(255) NULL COMMENT 'contraseña del portal (password_hash); NULL = enlace anterior al 2026-08-14, abre sin ella',
+    pass         VARCHAR(16) NULL COMMENT 'la misma contraseña en claro, para poder volver a consultarla; NULL en las anteriores al 2026-10-06',
     fecha_expira DATETIME NOT NULL,
     activo       TINYINT(1) NOT NULL DEFAULT 1,
     usos         INT UNSIGNED NOT NULL DEFAULT 0,

@@ -29,3 +29,5 @@ uploads/**
 # Whitelist: assets del sistema sí van al repo
 !img/**
 !vendor/**
+# Documentos que el sistema adjunta en sus correos (el reglamento de ingreso)
+!doc/*.pdf

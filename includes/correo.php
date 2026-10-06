@@ -105,8 +105,12 @@ if (!function_exists('sivacConfigCorreo')) {
      *
      * @param string[] $para Lista de destinatarios (correos).
      * @param string[] $cc   Lista opcional de copias.
+     * @param array[]  $adjuntos Archivos del servidor a adjuntar, cada uno como
+     *   ['ruta' => ruta absoluta, 'nombre' => nombre con el que lo ve quien lo recibe].
+     *   Si alguno no existe, el correo NO sale: un correo que dice «adjunto» y no
+     *   lo trae es peor que uno que falla y queda en la bitácora.
      */
-    function enviarCorreoSivac(array $para, string $asunto, string $tituloPlantilla, string $cuerpoHtml, array $cc = []): array {
+    function enviarCorreoSivac(array $para, string $asunto, string $tituloPlantilla, string $cuerpoHtml, array $cc = [], array $adjuntos = []): array {
         $cfg = sivacConfigCorreo();
         $destinos = array_values(array_filter(array_map('trim', $para), function ($c) {
             return filter_var($c, FILTER_VALIDATE_EMAIL);
@@ -126,6 +130,11 @@ if (!function_exists('sivacConfigCorreo')) {
         }
         if (!$destinos) {
             return ['ok' => false, 'error' => 'Sin destinatarios válidos.', 'para' => $listaStr];
+        }
+        foreach ($adjuntos as $a) {
+            if (!is_file((string)($a['ruta'] ?? ''))) {
+                return ['ok' => false, 'error' => 'No se encontró el adjunto ' . basename((string)($a['ruta'] ?? '')) . ' en el servidor.', 'para' => $listaStr];
+            }
         }
 
         // ── Redirección de PRUEBAS ────────────────────────────────────────────
@@ -177,6 +186,7 @@ if (!function_exists('sivacConfigCorreo')) {
 
             foreach ($destinos as $c) $mail->addAddress($c);
             foreach ($copias as $c)  $mail->addCC($c);
+            foreach ($adjuntos as $a) $mail->addAttachment($a['ruta'], $a['nombre'] ?? basename($a['ruta']));
 
             $mail->send();
             return ['ok' => true, 'error' => null, 'para' => $listaStr];

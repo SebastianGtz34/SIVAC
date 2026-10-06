@@ -156,7 +156,8 @@ switch ($accion) {
                         'Sin sugerencias'
                     ) AS cita_sugerida,
                     (SELECT ci.fecha_confirmada FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' AND ci.estatus IN ('confirmada','realizada') ORDER BY ci.id DESC LIMIT 1) AS cita_confirmada,
-                    (SELECT ci.notas FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' ORDER BY ci.id DESC LIMIT 1) AS cita_notas
+                    (SELECT ci.notas FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' ORDER BY ci.id DESC LIMIT 1) AS cita_notas,
+                    (SELECT ci.fecha_candidato FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' ORDER BY ci.id DESC LIMIT 1) AS cita_fecha_candidato
              FROM candidatos c
              INNER JOIN vacantes v ON v.id = c.id_vacante
              WHERE v.no_empleado_solicitante = ?
@@ -260,6 +261,12 @@ switch ($accion) {
             responder(false, 'Sólo se puede reagendar mientras la entrevista sigue por hacerse.');
         }
 
+        // ¿Responde a un «el candidato no puede en ninguna»? Sólo cambia el aviso a RRHH.
+        $stmt = $conn->prepare("SELECT estatus FROM citas WHERE id_candidato = ? AND tipo = 'jefe' ORDER BY id DESC LIMIT 1");
+        $stmt->bind_param('i', $id); $stmt->execute();
+        $ultima = $stmt->get_result()->fetch_assoc(); $stmt->close();
+        $trasRechazo = ($ultima['estatus'] ?? '') === 'rechazada';
+
         // Se cancelan las citas VIGENTES, no sólo las pendientes: si ya estaba
         // confirmada y se deja viva, el candidato queda con dos entrevistas y la
         // ficha muestra la vieja como buena.
@@ -299,7 +306,8 @@ switch ($accion) {
             notificarEvento($conn, 'entrevista_disponibilidad', [
                 'destinos_no_empleado' => sivacDestinosRRHH($conn),
                 'id_candidato' => $id, 'id_vacante' => (int)$info['id_vacante'],
-                'titulo' => 'Entrevista reagendada por el solicitante — ' . $info['nombre'],
+                'titulo' => ($trasRechazo ? 'Nuevas fechas de entrevista del solicitante — ' : 'Entrevista reagendada por el solicitante — ')
+                    . $info['nombre'],
                 'mensaje' => $info['folio'] . ' · nuevas opciones: ' . $fmt1 . ' o ' . $fmt2
                     . '; confirmar cuál elige el candidato'
                     . ($notas !== '' ? ' · ' . $notas : ''),

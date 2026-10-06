@@ -103,6 +103,31 @@ ALTER TABLE candidatos
 > bueno y alinear ambos. El código de la copia no depende del default: escribe el
 > estatus explícitamente.
 
+### Retro reglamento (6-oct): volver a consultar la contraseña del portal
+Sin esta columna **no se puede generar ningún enlace ni restablecer una
+contraseña** (el `INSERT`/`UPDATE` truena con *Unknown column*):
+
+```sql
+ALTER TABLE candidato_accesos
+  ADD COLUMN pass VARCHAR(16) NULL
+    COMMENT 'la misma contraseña en claro, para poder volver a consultarla; NULL en las anteriores al 2026-10-06' AFTER pass_hash;
+```
+
+Las contraseñas generadas antes quedan sin claro: para que se puedan consultar
+hay que restablecerlas una vez desde el diálogo del enlace.
+
+Y para la opción «Ninguna le queda» al confirmar la entrevista (el candidato no
+puede en ninguna de las dos fechas del jefe). Sin esto, marcarla truena:
+
+```sql
+ALTER TABLE citas
+  MODIFY estatus ENUM('pendiente','confirmada','realizada','cancelada','rechazada')
+    NOT NULL DEFAULT 'pendiente'
+    COMMENT 'rechazada = el candidato no pudo en ninguna de las dos; el jefe propone otras',
+  ADD COLUMN fecha_candidato DATETIME NULL
+    COMMENT 'otra fecha que pidió el candidato al rechazar las dos (opcional)' AFTER fecha_confirmada;
+```
+
 ### Validación de documentos (17-ago) — comprobar antes de descartarlo
 Estas columnas entraron con la retro de validación de documentos y **nunca se
 anotaron aquí**, así que no consta si se aplicaron en producción. Comprobar:
@@ -155,8 +180,12 @@ que para los otros 16 sistemas. `estatus = 0` revoca sin borrar la fila.
   reglamento y los cinco avisos de alta a las áreas se registran en
   `notificaciones` con `correo_error = 'Falta config_correo.php en el servidor.'`
   y nadie los recibe. Pasó en producción el **2026-08-18**: se completó un alta
-  real y las cinco áreas nunca se enteraron. Al terminar cualquier
-  actualización, comprobar:
+  real y las cinco áreas nunca se enteraron. Desde el 2026-10-06 el reglamento
+  sí se detiene: sólo se marca como enviado si el correo salió, y sin esa marca
+  no se puede completar el alta. Eso también aplica en local con `activo => false`;
+  para recorrer el alta ahí, usar `redirigir_a`. El PDF que se adjunta
+  (`doc/RESUMEN DEL REGLAMENTO INTERIOR DE TRABAJO.pdf`) sí va en el repo.
+  Al terminar cualquier actualización, comprobar:
   ```sql
   SELECT correo_enviado, correo_error, fecha_creacion
     FROM notificaciones ORDER BY id DESC LIMIT 5;
