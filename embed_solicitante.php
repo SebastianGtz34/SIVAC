@@ -925,6 +925,14 @@ $(function () {
                         + '<strong>Entrevista a candidato: ' + formatearFecha(c.cita_confirmada) + '</strong></div>'
                     : '<div class="small text-muted"><i class="fas fa-clock text-warning mr-1"></i>'
                         + '<strong> Sugeridas: ' + c.cita_sugerida + '</strong> Cita pendiente de confirmación</div>';
+                // El candidato no pudo en ninguna de mis fechas: me toca proponer otras.
+                var sinFecha = c.estatus === 'aprobado_jefe' && c.cita_estatus === 'rechazada';
+                if (sinFecha) {
+                    miEnt = '<div class="alert alert-warning small py-2 mb-0">'
+                        + '<i class="fas fa-calendar-times mr-1"></i><strong>El candidato no puede en ninguna de tus fechas.</strong>'
+                        + (c.cita_fecha_candidato ? '<br>Pide: <strong>' + formatearFecha(c.cita_fecha_candidato) + '</strong>' : '')
+                        + '<br>Propón nuevas fechas de entrevista.</div>';
+                }
 
                 // Motivo del descarte (sólo en tarjetas descartadas).
                 var motivo = (esDescartado && c.motivo_descarte)
@@ -944,11 +952,14 @@ $(function () {
                 } else if (c.estatus === 'aprobado_jefe') {
                     // Todavía sin fecha cerrada: lo único que puede hacer el jefe es
                     // cambiar las opciones que ofreció.
-                    acc = '<button class="btn btn-sm btn-outline-primary btnReagendar" data-id="' + c.id + '"><i class="fas fa-calendar-alt mr-1"></i>Cambiar fechas</button>';
+                    acc = sinFecha
+                        ? '<button class="btn btn-sm btn-primary btnReagendar" data-id="' + c.id + '"'
+                            + ' data-pedida="' + escHtml(c.cita_fecha_candidato || '') + '"><i class="fas fa-calendar-plus mr-1"></i>Proponer nuevas fechas</button>'
+                        : '<button class="btn btn-sm btn-outline-primary btnReagendar" data-id="' + c.id + '"><i class="fas fa-calendar-alt mr-1"></i>Cambiar fechas</button>';
                 } else if (c.estatus === 'entrevista_confirmada') {
                     acc = '<button class="btn btn-sm btn-success btnResultadoOk mr-1" data-id="' + c.id + '"><i class="fas fa-check mr-1"></i>Aprobó</button>'
                         + '<button class="btn btn-sm btn-outline-danger btnResultadoNo mr-1" data-id="' + c.id + '"><i class="fas fa-times mr-1"></i>Descartó</button>'
-                        + '<button class="btn btn-sm btn-outline-primary btnReagendar" data-id="' + c.id + '"><i class="fas fa-calendar-alt mr-1"></i>Reagendar</button>';
+                        + '<button class="btn btn-sm btn-outline-primary btnReagendar" data-id="' + c.id + '" data-confirmada="1"><i class="fas fa-calendar-alt mr-1"></i>Reagendar entrevista</button>';
                 }
 
                 $c.append(
@@ -971,9 +982,17 @@ $(function () {
     // de que elija fecha», así que se avisa aquí para que no sorprenda.
     $('#misCandidatos').on('click', '.btnReagendar', function () {
         var id = $(this).data('id');
-        var yaConfirmada = $(this).text().indexOf('Reagendar') !== -1;
+        // Por atributo y no por el texto del botón: el texto es de la retro y cambia.
+        var yaConfirmada = !!$(this).data('confirmada');
+        // Si el candidato pidió otra fecha, se precarga como opción 1: si al jefe
+        // le queda, sólo agrega la segunda.
+        var pedida = String($(this).data('pedida') || '');
+        var sinFecha = $(this).is('[data-pedida]');
         Swal.fire({
-            title: yaConfirmada ? 'Reagendar la entrevista' : 'Cambiar las fechas',
+            title: yaConfirmada ? 'Reagendar la entrevista' : (sinFecha ? 'Proponer nuevas fechas' : 'Cambiar las fechas'),
+            didOpen: function () {
+                if (pedida) document.getElementById('sw_op1').value = pedida.replace(' ', 'T').substring(0, 16);
+            },
             html: '<p class="small text-muted mb-2">Ofrece dos opciones nuevas de fecha y hora para <strong>tu</strong> entrevista. '
                 + 'Pueden ser el <strong>mismo día a distinta hora</strong>; solo tienen que ser distintas y futuras.</p>'
                 + (yaConfirmada

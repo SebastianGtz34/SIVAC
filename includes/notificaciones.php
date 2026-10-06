@@ -124,6 +124,7 @@ if (!function_exists('notificarEvento')) {
      *   - correos string[]           → destinatarios de correo (externos o internos)
      *   - correo_asunto ?string, correo_titulo ?string, correo_html ?string
      *     Si falta correo_html, no se envía correo (solo campana).
+     *   - correo_adjuntos ?array      → archivos a adjuntar (ver enviarCorreoSivac).
      *
      * @param ?array $envio SALIDA opcional con el resultado del correo:
      *   ['intentado'=>bool, 'ok'=>bool, 'error'=>?string, 'para'=>string].
@@ -161,7 +162,9 @@ if (!function_exists('notificarEvento')) {
                 $correos,
                 (string)($datos['correo_asunto'] ?? $titulo),
                 (string)($datos['correo_titulo'] ?? $titulo),
-                $correoHtml
+                $correoHtml,
+                [],
+                $datos['correo_adjuntos'] ?? []
             );
             $correoEnviado = $res['ok'] ? 1 : 0;
             $correoDestinatarios = mb_substr($res['para'], 0, 500);

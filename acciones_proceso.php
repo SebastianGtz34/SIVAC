@@ -192,6 +192,70 @@ switch ($accion) {
         responder(true, 'Entrevista con el jefe confirmada para ' . $fechaFmt . '.');
     }
 
+    case 'sin_fecha_candidato': {
+        // El candidato no puede en NINGUNA de las dos fechas del jefe (retro
+        // 2026-10-06). RRHH no inventa una fecha: se le devuelve la pelota al jefe,
+        // que es dueño de su agenda, con la fecha que pidió el candidato si dio una.
+        // El candidato sigue en 'aprobado_jefe'; la cita queda 'rechazada' y el
+        // jefe propone otras con el mismo «reagendar» de siempre.
+        $id      = (int)($_POST['id'] ?? 0);
+        $pedida  = trim($_POST['fecha_candidato'] ?? '');
+        $notas   = trim($_POST['notas'] ?? '');
+        if ($id <= 0) responder(false, 'Id inválido.');
+        $tp = null;
+        if ($pedida !== '') {
+            $tp = strtotime($pedida);
+            if (!$tp) responder(false, 'La fecha que pidió el candidato no es válida.');
+            if ($tp <= time()) responder(false, 'La fecha que pidió el candidato debe ser futura.');
+        }
+
+        $c = ctxCandidato($conn, $id);
+        if (!$c) responder(false, 'Candidato no encontrado.');
+        if ($c['estatus'] !== 'aprobado_jefe') {
+            responder(false, 'El candidato no está esperando confirmar la entrevista con el jefe.');
+        }
+        $cita = citaPendiente($conn, $id);
+        if (!$cita) responder(false, 'No hay fechas del jefe pendientes de confirmar.');
+
+        $fechaVal = $tp ? date('Y-m-d H:i:s', $tp) : null;
+        $nota = 'El candidato no puede en ninguna de las dos fechas.'
+            . ($tp ? ' Pide el ' . date('d/m/Y H:i', $tp) . '.' : '')
+            . ($notas !== '' ? ' ' . $notas : '');
+        $stmt = $conn->prepare(
+            "UPDATE citas
+                SET estatus = 'rechazada', fecha_candidato = ?,
+                    notas = TRIM(CONCAT_WS('\n', NULLIF(notas, ''), ?))
+              WHERE id = ? AND estatus = 'pendiente'"
+        );
+        $stmt->bind_param('ssi', $fechaVal, $nota, $cita['id']);
+        $stmt->execute();
+        $ok = $stmt->affected_rows > 0; $stmt->close();
+        if (!$ok) responder(false, 'La cita cambió; recarga e inténtalo de nuevo.');
+
+        // Constancia en el historial: el estatus no cambia, pero sin esta fila la
+        // ficha no dice por qué las fechas del jefe desaparecieron.
+        $hist = $conn->prepare(
+            "INSERT INTO candidatos_historial (id_candidato, estatus_anterior, estatus_nuevo, no_empleado, comentario)
+             VALUES (?, 'aprobado_jefe', 'aprobado_jefe', ?, ?)"
+        );
+        $hist->bind_param('iis', $id, $noEmp, $nota);
+        $hist->execute();
+        $hist->close();
+
+        // Sólo campana al jefe: es interno. El candidato se entera por correo
+        // cuando RRHH confirme la fecha nueva, como en el resto del flujo.
+        notificarEvento($conn, 'entrevista_otra_fecha', [
+            'destino_no_empleado' => (int)$c['no_empleado_solicitante'],
+            'id_candidato' => $id, 'id_vacante' => (int)$c['id_vacante'],
+            'titulo' => 'El candidato no puede en tus fechas — ' . $c['nombre'],
+            'mensaje' => $c['folio'] . ' · '
+                . ($tp ? 'pide el ' . date('d/m/Y H:i', $tp) . '; ' : '')
+                . 'propón nuevas fechas de entrevista',
+            'url' => 'embed_solicitante.php',
+        ]);
+        responder(true, 'Se le pidió al jefe que proponga nuevas fechas.');
+    }
+
     // 'registrar_resultado_entrevista' se movió a acciones_solicitante.php: el
     // resultado de la entrevista del jefe ahora lo captura el propio jefe (punto 15
     // de la retro PT2), no RRHH. RRHH conserva la confirmación del horario, arriba.

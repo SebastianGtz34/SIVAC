@@ -83,9 +83,15 @@ $(function () {
 
                 var sugerenciasDisponibles = [c.cita_jefe_op1, c.cita_jefe_op2].filter(Boolean).join(' ó ');
 
-                var htmlEntrevista = c.cita_jefe_confirmada 
+                var htmlEntrevista = c.cita_jefe_confirmada
                     ? '<br><b>Cita confirmada: <span class="badge badge-success">' + c.cita_jefe_confirmada + '</span>'
                     : (sugerenciasDisponibles ? '<br><b>Opciones Entrevista: <span class="badge badge-dark">' + sugerenciasDisponibles + '</span>' : '');
+                // El candidato no pudo en ninguna: no hay nada que confirmar hasta
+                // que el jefe proponga otras. Sin esta etiqueta la fila se quedaba
+                // sin botón y sin explicación.
+                if (c.estatus === 'aprobado_jefe' && !c.cita_jefe_pendiente && c.cita_jefe_ultima === 'rechazada') {
+                    htmlEntrevista = '<br><span class="badge badge-warning">Esperando fechas nuevas del jefe</span>';
+                }
 
 
                 var chk = (c.estatus === 'aspirante' && c.cv_archivo)
@@ -485,21 +491,37 @@ $(function () {
                 + '<select id="sw_opcion" class="swal2-select">'
                 + '<option value="">Selecciona la fecha</option>'
                 + '<option value="1">' + escHtml(formatearFecha(op1)) + '</option>'
-                + '<option value="2">' + escHtml(formatearFecha(op2)) + '</option></select>'
+                + '<option value="2">' + escHtml(formatearFecha(op2)) + '</option>'
+                + '<option value="otra">Ninguna le queda — pedir otras fechas al jefe</option></select>'
+                // Sólo con «Ninguna»: la fecha que pidió el candidato, si dio una.
+                + '<div id="sw_otra" style="display:none">'
+                + '<p class="small text-muted mt-3 mb-1">¿Qué fecha pidió el candidato? (opcional; se le pasa al jefe)</p>'
+                + '<input type="datetime-local" id="sw_fecha_cand" class="swal2-input">'
+                + '</div>'
                 + '<textarea id="sw_notas" class="swal2-textarea" placeholder="Comentarios (opcional)"></textarea>',
             showCancelButton: true, confirmButtonColor: messColor('accent'),
             background: messColor('card-bg'), color: messColor('text'),
             confirmButtonText: 'Confirmar', cancelButtonText: 'Cancelar',
+            didOpen: function () {
+                var sel = document.getElementById('sw_opcion');
+                sel.addEventListener('change', function () {
+                    var otra = sel.value === 'otra';
+                    document.getElementById('sw_otra').style.display = otra ? '' : 'none';
+                    Swal.getConfirmButton().textContent = otra ? 'Pedir al jefe' : 'Confirmar';
+                });
+            },
             preConfirm: function () {
                 var op = document.getElementById('sw_opcion').value;
                 if (!op) { Swal.showValidationMessage('Selecciona la fecha que aceptó el candidato.'); return false; }
-                return { opcion: op, notas: document.getElementById('sw_notas').value };
+                return { opcion: op, notas: document.getElementById('sw_notas').value,
+                         fecha_candidato: document.getElementById('sw_fecha_cand').value };
             }
         }).then(function (r) {
             if (!r.isConfirmed) return;
-            ajaxPost('acciones_proceso.php', {
-                accion: 'confirmar_entrevista', id: id, opcion: r.value.opcion, notas: r.value.notas
-            }, function (err, res) {
+            var datos = r.value.opcion === 'otra'
+                ? { accion: 'sin_fecha_candidato', id: id, fecha_candidato: r.value.fecha_candidato, notas: r.value.notas }
+                : { accion: 'confirmar_entrevista', id: id, opcion: r.value.opcion, notas: r.value.notas };
+            ajaxPost('acciones_proceso.php', datos, function (err, res) {
                 if (res && res.success) { mostrarToast(res.message, 'success'); cargar(); }
                 else { mostrarToast((res && res.message) || 'Error.', 'error'); }
             });

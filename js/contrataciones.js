@@ -117,7 +117,9 @@ $(function () {
         $('#docsTitulo').text((docSoloDatos ? 'Expediente — ' : 'Documentación — ') + $(this).data('nombre'));
         $('#ingreso_fecha').val(''); 
         $('#prorroga_fecha').val('');
-        $('#resumenFechas').empty();   // no dejar a la vista las fechas del candidato anterior
+        $('#resumenFechas, #limiteActual').empty();   // no dejar a la vista las fechas del candidato anterior
+        $('#prorroga_fecha').removeAttr('min');
+        limiteDocs = null;
         $('#formAvisosAlta').removeClass('d-none');
         cargarFicha();
         cargarDatosAlta();
@@ -164,7 +166,7 @@ $(function () {
     function generarEnlaceNuevo(id) {
         ajaxPost('acciones_cierre.php', { accion: 'enlace_portal', id: id, modo: 'nuevo' }, function (err, res) {
             if (!res || !res.success) { mostrarToast((res && res.message) || 'No se pudo generar el enlace.', 'error'); return; }
-            mostrarEnlace(id, res.url, res.message, res.expira, false, res.pass);
+            mostrarEnlace(id, res.url, res.message, res.expira, false, res.pass, null, res.limite_docs);
         });
     }
 
@@ -176,7 +178,7 @@ $(function () {
     /**
      * Contraseña nueva para el MISMO enlace. Se cierra el diálogo antes de
      * confirmar para no anidar dos SweetAlert, y al terminar se vuelve a abrir
-     * ya con la clave nueva a la vista — que es la única vez que se puede leer.
+     * ya con la clave nueva a la vista.
      */
     function restablecerPass(id, url, expira) {
         Swal.close();
@@ -185,29 +187,38 @@ $(function () {
             function () {
                 ajaxPost('acciones_cierre.php', { accion: 'restablecer_pass', id: id }, function (err, res) {
                     if (!res || !res.success) { mostrarToast((res && res.message) || 'No se pudo restablecer.', 'error'); return; }
-                    mostrarEnlace(id, url, res.message, res.expira || expira, true, res.pass);
+                    mostrarEnlace(id, url, res.message, res.expira || expira, true, res.pass, null, res.limite_docs);
                 });
             },
             { titulo: 'Restablecer contraseña', confirmar: 'Sí, restablecer', icon: 'warning' });
     }
 
-    function mostrarEnlace(id, url, mensaje, expira, esVigente, pass, tienePass) {
-        // La contraseña sólo llega al GENERAR: de ella se guarda el hash, no el
-        // claro. Por eso ésta es la única pantalla donde se puede leer, y por eso
-        // se insiste en que viaje en un mensaje APARTE del enlace — son dos
-        // factores y mandarlos juntos los convierte en uno.
+    function mostrarEnlace(id, url, mensaje, expira, esVigente, pass, tienePass, limite) {
+        // La fecha límite de documentos va aquí porque RRHH se la dice al
+        // candidato en el mismo mensaje que el enlace. No confundir con `expira`,
+        // que es hasta cuándo sirve el enlace.
+        var bloqueLimite = '<div class="alert alert-info small py-2 mx-2 mb-2">'
+            + '<i class="fas fa-calendar-check mr-1"></i>Fecha límite para entregar documentos: '
+            + (limite ? '<strong>' + escHtml(limite) + '</strong>' : '<em>sin registrar</em>')
+            + '</div>';
+
+        // Desde la retro del 2026-10-06 la contraseña se puede volver a consultar,
+        // igual que el enlace. Se sigue insistiendo en que viaje en un mensaje
+        // APARTE del enlace — son dos factores y mandarlos juntos los convierte en uno.
         var bloquePass = '';
         if (pass) {
             bloquePass = '<div class="sw-pass">'
                 + '<div class="sw-pass-etq">Contraseña del candidato</div>'
                 + '<div class="sw-pass-valor">' + escHtml(pass) + '</div>'
                 + '<div class="sw-pass-nota">Mándasela en un <strong>mensaje aparte</strong> del enlace. '
-                + 'Es la única vez que se puede ver: si se pierde, se restablece.</div>'
+                + 'La puedes volver a consultar aquí mientras el enlace esté vigente.</div>'
                 + '</div>';
         } else if (esVigente) {
+            // Contraseñas anteriores al 2026-10-06: sólo existe su hash.
             bloquePass = parseInt(tienePass, 10)
                 ? '<p class="small text-muted mt-2 mb-0"><i class="fas fa-lock mr-1"></i>'
-                + 'Este enlace ya tiene contraseña, y no se puede volver a mostrar.</p>'
+                + 'Esta contraseña es de antes de que se guardaran y no se puede mostrar. '
+                + 'Restablécela para poder consultarla de aquí en adelante.</p>'
                 : '<p class="small text-muted mt-2 mb-0"><i class="fas fa-lock-open mr-1"></i>'
                 + 'Este enlace es anterior a la contraseña: abre sin ella.</p>';
         }
@@ -227,8 +238,9 @@ $(function () {
         Swal.fire({
             title: 'Enlace del portal del candidato',
             html: '<p class="small text-muted mb-2">' + escHtml(mensaje)
-                + (expira ? ' Vigente hasta el <strong>' + escHtml(expira) + '</strong>.' : '') + '</p>'
+                + (expira ? ' El enlace vence el <strong>' + escHtml(expira) + '</strong>.' : '') + '</p>'
                 + inputConBoton
+                + bloqueLimite
                 + bloquePass + botonReset,
             showCancelButton: true,
             showDenyButton: esVigente,
@@ -274,7 +286,7 @@ $(function () {
                     { titulo: 'Generar un enlace nuevo', confirmar: 'Sí, generar', icon: 'warning' });
                 return;
             }
-            mostrarEnlace(id, res.url, res.message, res.expira, true, null, res.tiene_pass);
+            mostrarEnlace(id, res.url, res.message, res.expira, true, res.pass, res.tiene_pass, res.limite_docs);
         });
     });
 
@@ -370,6 +382,39 @@ $(function () {
             '<div class="text-muted">' + partes + '</div>'
             + (ct.aviso ? '<div class="text-warning mt-1"><i class="fas fa-exclamation-triangle mr-1"></i>' + escHtml(ct.aviso) + '</div>' : '')
         );
+        pintarLimiteActual(ct);
+    }
+
+    /** Fecha límite vigente, encima del campo de prórroga. */
+    var limiteDocs = null;   // 'YYYY-MM-DD' vigente, para el diálogo de confirmación
+    function pintarLimiteActual(ct) {
+        limiteDocs = ct.fecha_limite_documentos ? String(ct.fecha_limite_documentos).substring(0, 10) : null;
+        var $p = $('#prorroga_fecha');
+        if (!limiteDocs) {
+            $('#limiteActual').html('<span class="text-muted">Sin fecha límite registrada.</span>');
+            $p.removeAttr('min');
+            return;
+        }
+        // Días contra HOY en hora local: se arma la fecha por partes porque
+        // new Date('YYYY-MM-DD') la toma como UTC y en México resta un día.
+        var p = limiteDocs.split('-');
+        var limite = new Date(+p[0], +p[1] - 1, +p[2]);
+        var hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+        var dias = Math.round((limite - hoy) / 86400000);
+        var estado = dias > 1 ? 'faltan ' + dias + ' días'
+            : dias === 1 ? 'vence mañana'
+            : dias === 0 ? 'vence hoy'
+            : 'venció hace ' + (-dias) + (dias === -1 ? ' día' : ' días');
+        var clase = dias < 0 ? 'text-danger' : (dias <= 2 ? 'text-warning' : 'text-muted');
+        var prorrogas = parseInt(ct.prorrogas, 10);
+        $('#limiteActual').html(
+            '<span class="' + clase + '">Vigente: <strong>' + formatearSoloFecha(limiteDocs) + '</strong> · ' + estado + '</span>'
+            + (prorrogas ? ' <span class="badge badge-light">' + prorrogas + ' prórroga(s)</span>' : '')
+        );
+        // El backend rechaza una fecha igual o anterior; el calendario ya no la ofrece.
+        var minimo = new Date(limite); minimo.setDate(minimo.getDate() + 1);
+        var pad = function (n) { return String(n).padStart(2, '0'); };
+        $p.attr('min', minimo.getFullYear() + '-' + pad(minimo.getMonth() + 1) + '-' + pad(minimo.getDate()));
     }
 
     function pintarFaltan(faltan) {
@@ -436,11 +481,19 @@ $(function () {
 
     $('#btnProrroga').on('click', function (e) {
         e.preventDefault();
-        if (!$('#prorroga_fecha').val()) { mostrarToast('Selecciona la fecha.', 'warning'); return; }
-        ajaxPost('acciones_cierre.php', { accion: 'prorroga_documentos', id: docCandidato, fecha_limite: $('#prorroga_fecha').val() }, function (err, res) {
-            toastFechas(res);
-            if (res && res.success) { $('#prorroga_fecha').val(''); cargarDatosAlta(); cargar(); }
-        });
+        var nueva = $('#prorroga_fecha').val();
+        if (!nueva) { mostrarToast('Elige en el calendario la nueva fecha límite.', 'warning'); return; }
+        confirmarAccion(
+            'La fecha límite para entregar documentos pasa '
+            + (limiteDocs ? 'del <strong>' + formatearSoloFecha(limiteDocs) + '</strong> ' : '')
+            + 'al <strong>' + formatearSoloFecha(nueva) + '</strong>.<br>Al candidato se le avisa por correo.',
+            function () {
+                ajaxPost('acciones_cierre.php', { accion: 'prorroga_documentos', id: docCandidato, fecha_limite: nueva }, function (err, res) {
+                    toastFechas(res);
+                    if (res && res.success) { $('#prorroga_fecha').val(''); cargarDatosAlta(); cargar(); }
+                });
+            },
+            { titulo: '¿Ampliar el plazo?', confirmar: 'Sí, ampliar', icon: 'question' });
     });
 
     $('#btnReglamento').on('click', function (e) {

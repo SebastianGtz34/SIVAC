@@ -65,11 +65,16 @@ include 'encabezado.php';
               <div class="input-group-append"><button class="btn btn-outline-primary" id="btnIngreso">Guardar</button></div>
             </div>
           </div>
-          <div class="form-group"><label>Prórroga de fecha límite de documentos</label>
+          <!-- Prórroga: se muestra la fecha límite VIGENTE arriba del campo. Antes
+               sólo había un calendario vacío y un botón «Prórroga», y no se veía
+               qué se estaba ampliando ni que al candidato le llega un correo. -->
+          <div class="form-group"><label>Fecha límite de documentos</label>
+            <div id="limiteActual" class="small mb-1"></div>
             <div class="input-group">
-              <input type="date" class="form-control" id="prorroga_fecha">
-              <div class="input-group-append"><button class="btn btn-outline-secondary" id="btnProrroga">Prórroga</button></div>
+              <input type="date" class="form-control" id="prorroga_fecha" title="Nueva fecha límite">
+              <div class="input-group-append"><button class="btn btn-outline-secondary" id="btnProrroga"><i class="fas fa-calendar-plus mr-1"></i>Ampliar plazo</button></div>
             </div>
+            <small class="form-text text-muted">Elige la nueva fecha límite; al candidato se le avisa por correo.</small>
           </div>
           <!-- Las dos fechas juntas: se capturan en campos separados y nada
                relacionaba una con otra. Si la entrega vence después del ingreso
