@@ -1,6 +1,6 @@
 <?php
 /**
- * inicio.php — Dashboard. KPIs + embudo del pipeline + candidatos por vacante.
+ * inicio.php — Dashboard. KPIs + carriles por vacante + rechazos/tiempos + detalle.
  * Ejecuta la expiración lazy de propuestas al cargar.
  *
  * Lo ven RRHH y los gerentes, pero no ven lo mismo:
@@ -11,7 +11,7 @@
  *                que ningún parámetro de la URL puede ensanchar.
  *
  * Todo indicador se calcula sobre el MISMO alcance (una sola cláusula WHERE
- * construida en un lugar), para que los KPIs, el embudo y la tabla no puedan
+ * construida en un lugar), para que los KPIs, las gráficas y la tabla no puedan
  * contradecirse entre sí.
  */
 require_once 'conn.php';
@@ -23,6 +23,15 @@ $noEmpSesion = requiereSesionPage();
 requiereDashboardPage($conn, $noEmpSesion);
 
 $esRRHHSesion = esRRHH($conn, $noEmpSesion);
+
+// Las gráficas del unicornio son un chiste local con Recursos Humanos: las ve
+// sólo quien ES del departamento (SIVAC_DEPTS_NOTIF), no todos los que tienen
+// acceso a NEST (eso es esRRHH(): también entra BI). Los demás —y RRHH también—
+// tienen las gráficas de siempre en «Ver gráficas». Excepciones por persona:
+// 523 = Sebastián (BI), que mantiene el sistema y lo revisa.
+$verUnicornioExtra = [523];
+$verUnicornio = in_array((int)(obtenerDatosEmpleado($conn, $noEmpSesion)['departamento'] ?? 0), SIVAC_DEPTS_NOTIF, true)
+             || in_array($noEmpSesion, $verUnicornioExtra, true);
 
 // Expira propuestas vencidas antes de calcular indicadores.
 sivacExpirarPropuestas($conn);
@@ -276,6 +285,73 @@ while ($r = $res->fetch_assoc()) {
 }
 asort($gerentesDisp);
 
+// ---------------------------------------------------------------------------
+// Carriles: un renglón por vacante activa y un unicornio por candidato, en la
+// columna donde va. Las columnas son las cuatro con las que RRHH piensa el
+// proceso (su propio dibujo), no los estatus del sistema:
+//   - Entrevista: de la captura a la entrevista con el jefe confirmada (incluye
+//     la entrevista de RRHH, que pasa fuera del sistema).
+//   - Psicométricos: ya se entrevistó con el jefe; el psicométrico se captura
+//     aquí y es requisito para salir hacia propuesta (acciones_cierre.php).
+//   - Propuesta: enviada, expirada o aceptada.
+//   - Contratación: documentación y contratado.
+// Los descartados no aparecen: ya no van en ningún carril. Sólo se consulta (y
+// sólo viaja a la página, con nombres de candidatos) si quien entra es de RRHH.
+// ---------------------------------------------------------------------------
+$unicornioData = null;
+if ($verUnicornio) {
+    $columnasCarril = [
+        'Entrevista'    => ['aspirante', 'enviado_solicitante', 'aprobado_jefe', 'entrevista_confirmada'],
+        'Psicométricos' => ['entrevistado'],
+        'Propuesta'     => ['propuesta_enviada', 'propuesta_expirada', 'propuesta_aceptada'],
+        'Contratación'  => ['documentacion', 'contratado'],
+    ];
+    $colDeEstatus = [];
+    foreach (array_values($columnasCarril) as $i => $estatusCol) {
+        foreach ($estatusCol as $est) $colDeEstatus[$est] = $i;
+    }
+
+    $stmt = $conn->prepare(
+        "SELECT v.id, v.folio, v.puesto, v.region, c.estatus,
+                TRIM(CONCAT_WS(' ', c.nombre, NULLIF(c.apellidos, ''))) AS nombre
+           FROM vacantes v
+           LEFT JOIN candidatos c ON c.id_vacante = v.id AND c.estatus <> 'descartado'
+          WHERE v.estatus IN ('abierta','en_proceso')" . $alcanceSql . "
+          ORDER BY v.id DESC, c.id"
+    );
+    if ($tipos) $stmt->bind_param($tipos, ...$params);
+    $stmt->execute();
+    $resC = $stmt->get_result();
+    $carriles = [];
+    while ($r = $resC->fetch_assoc()) {
+        $vid = (int)$r['id'];
+        if (!isset($carriles[$vid])) {
+            $carriles[$vid] = [
+                'folio'  => $r['folio'],
+                'puesto' => $r['puesto'],
+                'region' => $regiones[(int)$r['region']] ?? '',
+                'cand'   => [],
+            ];
+        }
+        if ($r['estatus'] !== null && isset($colDeEstatus[$r['estatus']])) {
+            $carriles[$vid]['cand'][] = [
+                'nombre'  => $r['nombre'],
+                'estatus' => sivacEstatusLabel($r['estatus']),
+                'col'     => $colDeEstatus[$r['estatus']],
+            ];
+        }
+    }
+    $stmt->close();
+
+    $unicornioData = [
+        'carriles' => [
+            'columnas' => array_keys($columnasCarril),
+            'vacantes' => array_values($carriles),
+        ],
+    ];
+}
+
+// Datos de las gráficas de siempre. Las del unicornio reusan rechazos y tiempos.
 $chartData = [
     'embudo' => [
         'labels' => array_values($etapas),
@@ -302,7 +378,23 @@ include 'encabezado.php';
 ?>
 <div class="page-header">
     <h1><i class="fas fa-tachometer-alt mr-2 text-primary"></i>Dashboard</h1>
-    <span class="text-muted small"><?= date('d/m/Y') ?></span>
+    <div class="d-flex align-items-center">
+        <span class="text-muted small mr-3"><?= date('d/m/Y') ?></span>
+        <!-- Las gráficas van ocultas: RRHH trabaja con la tabla y las abre cuando
+             quiere. Las de siempre, para todos; las del unicornio, sólo RRHH. -->
+        <button type="button" class="btn btn-sm btn-outline-primary btn-graficas btn-graficas-icono"
+                data-graficas="clasicas" aria-controls="seccionGraficas" aria-expanded="false">
+            <i class="fas fa-chart-bar" aria-hidden="true"></i>
+            <span class="btn-graficas-texto">Ver gráficas</span>
+        </button>
+        <?php if ($verUnicornio): ?>
+        <button type="button" class="btn btn-sm btn-outline-primary btn-graficas ml-2"
+                data-graficas="unicornio" aria-controls="seccionUnicornio" aria-expanded="false">
+            <span class="unicornio-avatar" aria-hidden="true"></span>
+            <span class="btn-graficas-texto">Ver gráficas</span>
+        </button>
+        <?php endif; ?>
+    </div>
 </div>
 
 <?php if (!$esRRHHSesion): ?>
@@ -372,6 +464,8 @@ include 'encabezado.php';
     <?php endforeach; ?>
 </div>
 
+<!-- Gráficas de siempre, a demanda (botón «Ver gráficas»), para todos. -->
+<section id="seccionGraficas" hidden aria-label="Gráficas">
 <div class="row">
     <div class="col-lg-5 mb-4">
         <div class="card h-100">
@@ -411,6 +505,76 @@ include 'encabezado.php';
         </div>
     </div>
 </div>
+</section>
+
+<?php if ($verUnicornio): ?>
+<!-- Gráficas del unicornio: sólo RRHH (ver $verUnicornio). Cada una se titula con
+     la pregunta que contesta y el unicornio la dice en una frase. -->
+<section id="seccionUnicornio" hidden aria-label="Gráficas del unicornio">
+<div class="row">
+    <div class="col-12 mb-4">
+        <div class="card">
+            <div class="card-header">¿En qué etapa va cada candidato?</div>
+            <div class="card-body">
+                <div class="unicornio-dice">
+                    <span class="unicornio-avatar" aria-hidden="true"></span>
+                    <p class="unicornio-globo" id="dichoCarriles"></p>
+                </div>
+                <!-- Lo arma dashboard-unicornio.js: un renglón por vacante activa, una
+                     columna por etapa y un unicornio por candidato. -->
+                <div class="carriles-scroll"><div class="carriles" id="carriles"></div></div>
+                <p class="grafica-nota" id="notaCarriles">
+                    Cada unicornio es un candidato (pasa el mouse para ver quién es y su estatus).
+                    Entrevista va de la captura a la entrevista con el jefe; Psicométricos, ya entrevistado por el jefe.
+                    No aparecen los descartados.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-lg-6 mb-4">
+        <div class="card h-100">
+            <div class="card-header">¿En qué etapa se descartan más candidatos?</div>
+            <div class="card-body">
+                <div class="unicornio-dice">
+                    <span class="unicornio-avatar" aria-hidden="true"></span>
+                    <p class="unicornio-globo" id="dichoRechazos"></p>
+                </div>
+                <div class="grafica-lienzo" id="lienzoRechazos"><canvas id="chartRechazosUni"></canvas></div>
+                <p class="grafica-nota" id="notaRechazos">Entre más largo el cuerno, más descartes. El dorado es la etapa con más.</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6 mb-4">
+        <div class="card h-100">
+            <div class="card-header">¿Cuántos días tarda cada etapa, en promedio?</div>
+            <div class="card-body">
+                <div class="unicornio-dice">
+                    <span class="unicornio-avatar" aria-hidden="true"></span>
+                    <p class="unicornio-globo" id="dichoTiempos"></p>
+                </div>
+                <div class="grafica-lienzo" id="lienzoTiempos"><canvas id="chartTiemposUni"></canvas></div>
+                <p class="grafica-nota" id="notaTiempos">Entre más largo el cuerno, más días. El dorado es la etapa más lenta.</p>
+            </div>
+        </div>
+    </div>
+</div>
+</section>
+<?php endif; ?>
+<script>
+    // Filtrar recarga la página: la vista que estaba abierta en esta pestaña sigue
+    // abierta. Va aquí, antes de la tabla, para que la tabla no brinque. Misma clave
+    // que js/dashboard.js.
+    (function () {
+        try {
+            var id = { clasicas: 'seccionGraficas', unicornio: 'seccionUnicornio' }[sessionStorage.getItem('sivac-dashboard-graficas')];
+            var seccion = id && document.getElementById(id);
+            if (seccion) seccion.hidden = false;
+        } catch (e) {}
+    })();
+</script>
 
 <div class="row">
     <div class="col-12 mb-4">
@@ -452,5 +616,11 @@ include 'encabezado.php';
 </div>
 
 <script>window.SIVAC_CHART = <?= json_encode($chartData) ?>;</script>
+<?php if ($verUnicornio): ?>
+<script>window.SIVAC_UNICORNIO = <?= json_encode($unicornioData) ?>;</script>
+<?php endif; ?>
 <?php include 'pie.php'; ?>
 <script src="<?= sivacAsset('js/dashboard.js') ?>"></script>
+<?php if ($verUnicornio): ?>
+<script src="<?= sivacAsset('js/dashboard-unicornio.js') ?>"></script>
+<?php endif; ?>

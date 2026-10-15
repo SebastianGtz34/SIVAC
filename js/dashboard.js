@@ -1,7 +1,17 @@
 /* dashboard.js — Gráficas del dashboard (Chart.js 2.9.4, tema-aware).
  * Los filtros de región/gerente viajan por GET y los resuelve inicio.php: el
  * alcance de lo que cada quien puede ver se decide en el servidor, aquí solo se
- * reenvía el formulario. */
+ * reenvía el formulario.
+ *
+ * Las gráficas van ocultas: RRHH trabaja con la tabla y las abre con «Ver
+ * gráficas». Hay dos vistas, una por botón, y sólo una abierta a la vez:
+ *   - 'clasicas'  → estas cuatro, para todos.
+ *   - 'unicornio' → chiste local con RRHH (dashboard-unicornio.js); inicio.php
+ *                   sólo pinta su botón y su sección a quien es de RRHH.
+ * La vista abierta se guarda por pestaña (sessionStorage) para que sobreviva a
+ * la recarga del filtro; inicio.php la lee antes de pintar la tabla para que no
+ * brinque. Las gráficas se construyen hasta que su vista se abre: un canvas
+ * oculto mide 0 y Chart.js no se redimensiona solo al aparecer. */
 $(function () {
     var D = window.SIVAC_CHART || { embudo: { labels: [], data: [] }, vacantes: { labels: [], cand: [], entr: [] } };
     D.rechazos = D.rechazos || { labels: [], data: [] };
@@ -12,6 +22,34 @@ $(function () {
     $('#filtroRegion, #filtroGerente').on('change', function () {
         $('#formFiltros').trigger('submit');
     });
+
+    // ---------------------------------------------------------------------
+    // Ver / ocultar gráficas. Cada botón trae data-graficas (la vista) y
+    // aria-controls (su sección). Abrir una cierra la otra.
+    // ---------------------------------------------------------------------
+    var CLAVE_VISTA = 'sivac-dashboard-graficas';
+    var $botones = $('[data-graficas]');
+
+    function seccionDe(btn) { return $('#' + $(btn).attr('aria-controls')); }
+
+    function pintarBotones() {
+        $botones.each(function () {
+            var ver = !seccionDe(this).prop('hidden');
+            $(this).attr('aria-expanded', ver ? 'true' : 'false')
+                .find('.btn-graficas-texto').text(ver ? 'Ocultar gráficas' : 'Ver gráficas');
+        });
+    }
+
+    $botones.on('click', function () {
+        var vista = $(this).data('graficas'), abrir = seccionDe(this).prop('hidden');
+        $botones.each(function () { seccionDe(this).prop('hidden', true); });
+        if (abrir) seccionDe(this).prop('hidden', false);
+        try { sessionStorage.setItem(CLAVE_VISTA, abrir ? vista : ''); } catch (e) {}
+        pintarBotones();
+        if (abrir) $(document).trigger('sivac:graficas', [vista]);
+    });
+
+    function clasicasAbiertas() { return !$('#seccionGraficas').prop('hidden'); }
 
     function tema() {
         return {
@@ -150,7 +188,9 @@ $(function () {
         }
     }
 
-    construir();
+    pintarBotones();
+    $(document).on('sivac:graficas', function (e, vista) { if (vista === 'clasicas') construir(); });
+    if (clasicasAbiertas()) construir();
     // Re-render al cambiar el tema para que los colores sigan al modo.
-    $(document).on('sivac:themechange', construir);
+    $(document).on('sivac:themechange', function () { if (clasicasAbiertas()) construir(); });
 });
