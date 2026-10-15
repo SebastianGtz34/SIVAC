@@ -42,6 +42,18 @@
     --chart-4: #805ad5;
     --chart-5: #d53f8c;
     --grid:    #e3e6ec;
+
+    /* cuerno del unicornio (gráficas del dashboard). En claro el dorado queda
+       <3:1 contra el blanco: por eso cada cuerno lleva canto oscuro y su valor
+       escrito en la punta. */
+    --cuerno-brillo: #f6dd8f;
+    --cuerno:        #d9a12b;
+    --cuerno-sombra: #a8771a;
+    --cuerno-surco:  #8a5f12;
+    /* cuernos de contexto (todos menos el destacado) */
+    --plata-brillo:  #f3f5f8;
+    --plata:         #c3cad5;
+    --plata-sombra:  #8a94a6;
 }
 
 /* ===== Design tokens (oscuro) ===== */
@@ -74,6 +86,15 @@ body.theme-dark {
     --chart-4: #9f7aea;
     --chart-5: #ed64a6;
     --grid:    #243049;
+
+    /* cuerno del unicornio (validados contra #121a2b) */
+    --cuerno-brillo: #e9c46a;
+    --cuerno:        #bb8a22;
+    --cuerno-sombra: #8a6316;
+    --cuerno-surco:  #6e4d0f;
+    --plata-brillo:  #7d889c;
+    --plata:         #56627a;
+    --plata-sombra:  #3a455a;
 }
 
 /* ===== Base ===== */
@@ -160,6 +181,11 @@ a:hover { color: var(--accent-dark); }
     flex-wrap: wrap; gap: .75rem; margin-bottom: 1.25rem;
 }
 .page-header h1 { font-size: 1.4rem; font-weight: 800; color: var(--text); margin: 0; }
+/* SB Admin 2 fija el fondo del área de contenido (#f8f9fc) y el pie va con
+   .bg-white: en oscuro las tarjetas se oscurecían pero lo de atrás seguía claro,
+   y el título de la página (texto claro) desaparecía sobre él. */
+body.theme-dark #wrapper #content-wrapper { background-color: var(--bg); }
+body.theme-dark footer.sticky-footer.bg-white { background-color: var(--card-bg) !important; }
 .text-muted { color: var(--text-muted) !important; }
 
 /* ===== Membrete del portal del candidato (única pantalla pública) ===== */
@@ -305,6 +331,97 @@ body.portal-con-barra { padding-bottom: 4.5rem; }
 .stat-card.stat-danger  .stat-label { color: var(--danger); }
 .stat-value { font-size: 1.6rem; font-weight: 800; color: var(--text); }
 .stat-icon  { font-size: 2rem; color: var(--border); }
+
+/* ===== Dashboard: gráficas a demanda + el unicornio de RRHH =====
+   RRHH lee la tabla, no las gráficas: éstas se abren con «Ver gráficas» y cada
+   una trae su frase. El unicornio (img/unicornio_grafica.jpeg) es chiste local
+   con RRHH: cada candidato en los carriles y los cuernos de las barras (ver
+   js/dashboard.js). */
+.btn-graficas {
+    display: inline-flex; align-items: center; gap: .45rem;
+    font-weight: 700; border-radius: 2rem; padding: .2rem .9rem .2rem .25rem;
+}
+.btn-graficas .unicornio-avatar { width: 1.65rem; height: 1.65rem; box-shadow: none; }
+/* El de las gráficas de siempre lleva ícono en vez del unicornio: mismo alto. */
+.btn-graficas-icono { padding: .43rem .9rem .43rem .8rem; }
+
+/* La cabeza recortada de la foto (651×876; cuadro x 200–651, y 60–511): casco,
+   cuerno y ojos, que es lo que la hace reconocible aun a 26px en el botón. */
+.unicornio-avatar {
+    display: inline-block; flex: 0 0 auto;
+    width: 2.6rem; height: 2.6rem; border-radius: 50%;
+    background: var(--card-soft) url('../img/unicornio_grafica.jpeg') no-repeat 100% 14.1% / 144.3% auto;
+    box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 3.5px var(--cuerno);
+}
+.unicornio-dice { display: flex; align-items: flex-start; gap: .85rem; margin-bottom: 1rem; }
+.unicornio-globo {
+    position: relative; flex: 1 1 auto; margin: .15rem 0 0;
+    padding: .55rem .85rem; border-radius: .75rem;
+    background: var(--card-soft); border: 1px solid var(--border);
+    font-size: .86rem; line-height: 1.5; color: var(--text);
+}
+/* La colita del globo, hacia el unicornio. */
+.unicornio-globo::before {
+    content: ''; position: absolute; left: -7px; top: .85rem;
+    width: 12px; height: 12px; background: var(--card-soft);
+    border-left: 1px solid var(--border); border-bottom: 1px solid var(--border);
+    transform: rotate(45deg);
+}
+
+.grafica-lienzo { position: relative; height: 270px; }
+.grafica-nota { margin: .6rem 0 0; font-size: .78rem; color: var(--text-muted); }
+
+/* Carriles («¿En qué etapa va cada candidato?», el dibujo de RRHH): una columna
+   para la vacante y una por etapa. La pista de cada vacante cruza las columnas de
+   etapa; la barra y los unicornios se acomodan con `left`/`width` en % que pone
+   dashboard.js (centro de cada columna). En celular se desplaza de lado. */
+.carriles-scroll { overflow-x: auto; }
+.carriles {
+    display: grid; min-width: 640px;
+    grid-template-columns: minmax(170px, 240px) repeat(var(--carril-cols, 4), minmax(0, 1fr));
+}
+.carril-cabeza {
+    padding: 0 .5rem .6rem; text-align: center; border-bottom: 1px solid var(--border);
+    font-size: .76rem; font-weight: 800; text-transform: uppercase; letter-spacing: .05rem;
+    color: var(--accent);
+}
+.carril-cabeza-vacante { text-align: left; padding-left: 0; color: var(--text-muted); }
+.carril-cabeza-num { margin-left: .35rem; color: var(--text-muted); }
+.carril-vacante {
+    display: flex; flex-direction: column; justify-content: center; min-width: 0;
+    padding: .55rem .75rem .55rem 0; border-bottom: 1px solid var(--border);
+}
+.carril-vacante strong { font-size: .86rem; line-height: 1.25; color: var(--text); }
+.carril-vacante small { color: var(--text-muted); }
+.carril-pista {
+    grid-column: 2 / -1; position: relative; min-height: 4.6rem;
+    border-bottom: 1px solid var(--border);
+    /* una línea suave al inicio de cada columna de etapa */
+    background-image: linear-gradient(to right, var(--grid) 1px, transparent 1px);
+    background-size: calc(100% / var(--carril-cols, 4)) 100%;
+}
+/* El riel: el camino completo, hasta contratación. */
+.carril-pista::before {
+    content: ''; position: absolute; left: 0; right: 0; top: 50%;
+    height: 12px; margin-top: -6px; border-radius: 6px; background: var(--border);
+}
+.carril-barra {
+    position: absolute; left: 0; top: 50%;
+    height: 12px; margin-top: -6px; border-radius: 6px; background: var(--accent);
+}
+.carril-grupo {
+    position: absolute; top: 50%; display: flex; align-items: center;
+    transform: translate(-50%, -50%);
+}
+.carril-unicornio { width: 2.9rem; height: 2.9rem; cursor: help; transition: transform .12s ease; }
+.carril-grupo > * + * { margin-left: -.9rem; }
+.carril-unicornio:hover, .carril-unicornio:focus { position: relative; z-index: 1; transform: scale(1.15); outline: none; }
+.carril-mas {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 1.9rem; height: 1.9rem; padding: 0 .35rem; border-radius: 1rem;
+    font-size: .74rem; font-weight: 800; color: #fff; background: var(--accent);
+    box-shadow: 0 0 0 2px var(--card-bg); cursor: help;
+}
 
 /* ===== Botones ===== */
 .btn-primary {

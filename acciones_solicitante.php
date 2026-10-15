@@ -117,9 +117,14 @@ switch ($accion) {
         // Solo las vacantes cuyo dueño es la sesión.
         // Se incluye motivo_rechazo para que quien levantó una requisición vea
         // por qué RRHH se la negó sin tener que ir a preguntar.
+        // 'total' cuenta SÓLO lo que el jefe puede abrir (mismo filtro que
+        // mis_candidatos); los 'aspirante' van aparte en 'en_rrhh'. Contarlos
+        // juntos mostraba «3 cand.» en una vacante que al abrirla salía vacía
+        // (ticket 120).
         $stmt = $conn->prepare(
             "SELECT v.id, v.folio, v.puesto, v.estatus, v.tipo, v.motivo_rechazo,
-                    (SELECT COUNT(*) FROM candidatos c WHERE c.id_vacante = v.id) AS total,
+                    (SELECT COUNT(*) FROM candidatos c WHERE c.id_vacante = v.id AND c.estatus <> 'aspirante') AS total,
+                    (SELECT COUNT(*) FROM candidatos c WHERE c.id_vacante = v.id AND c.estatus = 'aspirante') AS en_rrhh,
                     (SELECT COUNT(*) FROM candidatos c WHERE c.id_vacante = v.id AND c.estatus = 'enviado_solicitante') AS por_revisar,
                     (SELECT COUNT(*) FROM candidatos c WHERE c.id_vacante = v.id
                        AND c.estatus IN ('entrevista_confirmada','entrevistado','propuesta_enviada',
