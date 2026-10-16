@@ -34,6 +34,7 @@ function ctxCandidato(mysqli $conn, int $id): ?array {
     $stmt = $conn->prepare(
         "SELECT c.id, TRIM(CONCAT_WS(' ', c.nombre, NULLIF(c.apellidos,''))) AS nombre,
                 c.correo, c.telefono, c.estatus, c.psicometrico_fecha, c.psicometrico_resultado,
+                c.entrevista_rrhh_fecha, c.entrevista_rrhh_resultado,
                 c.nave, c.herramientas_notificadas,
                 v.id AS id_vacante, v.folio, v.puesto, v.tipo, v.departamento, v.no_empleado_solicitante
          FROM candidatos c INNER JOIN vacantes v ON v.id = c.id_vacante
@@ -55,6 +56,27 @@ function ctxCandidato(mysqli $conn, int $id): ?array {
  */
 function psicometricoRegistrado(array $c): bool {
     return !empty($c['psicometrico_fecha']) && trim((string)($c['psicometrico_resultado'] ?? '')) !== '';
+}
+
+/**
+ * Lo mismo para la constancia de la entrevista de RRHH: se captura en cualquier
+ * momento del proceso (Candidatos → Editar), pero tiene que estar antes de salir
+ * de 'entrevistado'. Hasta la retro RRHH del 2026-10-16 se exigía para «Enviar
+ * al solicitante»; ese paso se retiró y la exigencia se movió aquí.
+ */
+function constanciaRrhhRegistrada(array $c): bool {
+    return !empty($c['entrevista_rrhh_fecha']) && trim((string)($c['entrevista_rrhh_resultado'] ?? '')) !== '';
+}
+
+/**
+ * Qué falta registrar para salir de 'entrevistado' hacia propuesta/documentación.
+ * Devuelve el texto para «Registra … antes de …», o '' si no falta nada.
+ */
+function faltaParaCierre(array $c): string {
+    $falta = [];
+    if (!constanciaRrhhRegistrada($c)) $falta[] = 'la entrevista de RRHH';
+    if (!psicometricoRegistrado($c))    $falta[] = 'el psicométrico';
+    return $falta ? implode(' y ', $falta) . ' del candidato (fecha y resultado)' : '';
 }
 
 /**
@@ -247,9 +269,9 @@ switch ($accion) {
         if (!in_array($c['estatus'], ['entrevistado', 'propuesta_expirada'], true)) {
             responder(false, 'El candidato no está listo para recibir una propuesta.');
         }
-        // El psicométrico debe estar registrado antes de pasar a propuesta.
-        if (!psicometricoRegistrado($c)) {
-            responder(false, 'Registra el psicométrico del candidato (fecha y resultado) antes de enviar la propuesta.');
+        // Constancia de RRHH y psicométrico registrados antes de pasar a propuesta.
+        if ($falta = faltaParaCierre($c)) {
+            responder(false, 'Registra ' . $falta . ' antes de enviar la propuesta.');
         }
 
         $fechaCad = date('Y-m-d', $tc);
@@ -359,9 +381,9 @@ switch ($accion) {
         if ($c['estatus'] !== 'entrevistado') {
             responder(false, 'El candidato debe estar entrevistado para pasar a documentación.');
         }
-        // El psicométrico debe estar registrado antes de pasar a documentación.
-        if (!psicometricoRegistrado($c)) {
-            responder(false, 'Registra el psicométrico del candidato (fecha y resultado) antes de pasar a documentación.');
+        // Constancia de RRHH y psicométrico registrados antes de pasar a documentación.
+        if ($falta = faltaParaCierre($c)) {
+            responder(false, 'Registra ' . $falta . ' antes de pasar a documentación.');
         }
 
         $r = cambiarEstatusCandidato($conn, $id, 'documentacion', $noEmp, 'Candidato de prácticas aceptado; inicia documentación.');

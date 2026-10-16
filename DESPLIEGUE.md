@@ -95,13 +95,9 @@ ALTER TABLE candidatos
   ADD KEY idx_cand_origen (id_origen);
 ```
 
-> **Ojo con el DEFAULT de `candidatos.estatus`.** En la BD vale
-> `enviado_solicitante`, pero `database.sql` dice `aspirante`. La divergencia es
-> anterior a esta retro y afecta también al alta normal de candidatos: nacen ya
-> enviados al solicitante, y el checkbox de «enviar al solicitante» —que sólo se
-> pinta para `aspirante`— nunca aparece. Hay que decidir cuál de los dos es el
-> bueno y alinear ambos. El código de la copia no depende del default: escribe el
-> estatus explícitamente.
+> **DEFAULT de `candidatos.estatus`:** resuelto en la retro RRHH del 16-oct (ver
+> abajo): el bueno es `enviado_solicitante`, `database.sql` ya lo dice, y el alta
+> y la copia escriben el estatus explícitamente, sin depender del default.
 
 ### Retro reglamento (6-oct): volver a consultar la contraseña del portal
 Sin esta columna **no se puede generar ningún enlace ni restablecer una
@@ -126,6 +122,45 @@ ALTER TABLE citas
     COMMENT 'rechazada = el candidato no pudo en ninguna de las dos; el jefe propone otras',
   ADD COLUMN fecha_candidato DATETIME NULL
     COMMENT 'otra fecha que pidió el candidato al rechazar las dos (opcional)' AFTER fecha_confirmada;
+```
+
+### Retro RRHH (16-oct): se retira «Enviar al solicitante»
+RRHH registra al candidato desde la vacante, así que nace ya asignado al jefe
+(`enviado_solicitante`), la vacante pasa a «En proceso» y al jefe le llega el
+aviso. El botón y el endpoint `enviar_solicitante` desaparecen.
+
+Los candidatos que ya estén en `aspirante` («Capturado») se quedarían sin forma
+de llegarle al jefe. Pasarlos una vez, en este orden (el historial y la vacante
+leen a los que siguen en `aspirante`):
+
+```sql
+INSERT INTO candidatos_historial (id_candidato, estatus_anterior, estatus_nuevo, no_empleado, comentario)
+SELECT id, 'aspirante', 'enviado_solicitante', 0, 'Asignado al solicitante al retirar el paso «Enviar al solicitante»'
+  FROM candidatos WHERE estatus = 'aspirante';
+
+UPDATE vacantes SET estatus = 'en_proceso'
+ WHERE estatus = 'abierta'
+   AND id IN (SELECT id_vacante FROM candidatos WHERE estatus = 'aspirante');
+
+UPDATE candidatos SET estatus = 'enviado_solicitante' WHERE estatus = 'aspirante';
+
+-- Alinear el default con database.sql (si ya lo tiene, no cambia nada):
+ALTER TABLE candidatos ALTER COLUMN estatus SET DEFAULT 'enviado_solicitante';
+```
+
+Estos candidatos no generan campana al jefe (no pasan por el alta): avisarle
+por fuera si le cayeron varios de golpe.
+
+La constancia de la entrevista de RRHH ya no se exige al registrar ni al enviar:
+como el psicométrico, se captura cuando sea (Candidatos → Editar) y se exige
+para enviar la propuesta (o pasar a documentación en prácticas). Antes de subir,
+ver quién se toparía con el bloqueo para que RRHH la capture:
+
+```sql
+SELECT c.id, TRIM(CONCAT_WS(' ', c.nombre, c.apellidos)) AS nombre, c.estatus, v.folio
+  FROM candidatos c JOIN vacantes v ON v.id = c.id_vacante
+ WHERE c.estatus IN ('entrevistado','propuesta_expirada')
+   AND (c.entrevista_rrhh_fecha IS NULL OR IFNULL(TRIM(c.entrevista_rrhh_resultado),'') = '');
 ```
 
 ### Validación de documentos (17-ago) — comprobar antes de descartarlo

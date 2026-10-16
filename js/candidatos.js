@@ -3,8 +3,8 @@ $(function () {
     var estatusS = window.SIVAC_estatusS || {};
     var tabla = dtAutoAjustar($('#tablaCandidatos').DataTable({
         language: dtIdioma(),
-        order: [[1, 'asc']],
-        columnDefs: [{ orderable: false, targets: [0, 5, 6] }]
+        order: [[0, 'asc']],
+        columnDefs: [{ orderable: false, targets: [4, 5] }]
     }));
     var vacantesCache = [];
 
@@ -76,8 +76,6 @@ $(function () {
         pintarEtiquetaVacante();
         ajaxPost('acciones_candidatos.php', { accion: 'listar', id_vacante: idv }, function (err, res) {
             tabla.clear();
-            $('#chkTodos').prop('checked', false);
-            actualizarBtnEnviar();
             if (err || !res || !res.success) { tabla.draw(); return; }
             res.data.forEach(function (c) {
 
@@ -94,9 +92,6 @@ $(function () {
                 }
 
 
-                var chk = (c.estatus === 'aspirante' && c.cv_archivo)
-                    ? '<input type="checkbox" class="chkCand" value="' + c.id + '">'
-                    : '';
                 var cv = c.cv_archivo
                     ? '<a href="descargar.php?tipo=cv&id=' + c.id + '" target="_blank" class="btn btn-sm btn-outline-primary"><i class="fas fa-file-pdf"></i></a>'
                     : '<span class="text-muted">—</span>';
@@ -119,7 +114,8 @@ $(function () {
                 }
                 acc += '<button class="btn btn-outline-secondary btnDetalle" data-id="' + c.id + '" title="Ver ficha"><i class="fas fa-eye"></i> Ver Ficha</button>'
                     + '<button class="btn btn-outline-secondary btnEditar" data-id="' + c.id + '" title="Editar"><i class="fas fa-edit"></i> Editar</button>';
-                // Psicométrico (informativo): disponible desde que se envió al jefe en adelante.
+                // Psicométrico (informativo): disponible mientras el proceso siga vivo.
+                // ('aspirante' ya no se crea; queda sólo en fichas viejas.)
                 if (c.estatus !== 'aspirante' && c.estatus !== 'descartado') {
                     acc += '<button class="btn btn-outline-info btnPsico" data-id="' + c.id + '" title="Psicométrico"><i class="fas fa-brain"></i>psicometrico/Otras pruebas</button>';
                 }
@@ -134,7 +130,6 @@ $(function () {
                 }
                 acc += '</div>';
                 tabla.row.add([
-                    chk,
                     escHtml(c.nombre),
                     escHtml(c.folio),
                     '<div>' + escHtml(c.correo) + '</div><div class="text-muted small">' + escHtml(c.telefono || '') + '</div>',
@@ -148,22 +143,10 @@ $(function () {
         });
     }
 
-    function actualizarBtnEnviar() {
-        var n = $('.chkCand:checked').length;
-        $('#btnEnviarSel').prop('disabled', n === 0).html(
-            '<i class="fas fa-paper-plane mr-1"></i> Enviar seleccionados al solicitante' + (n ? ' (' + n + ')' : '')
-        );
-    }
-
     $('#filtroVacante').on('change', cargar);
     $('#btnTodasVacantes').on('click', function () {
         $('#filtroVacante').val('');
         cargar();
-    });
-    $('#tablaCandidatos tbody').on('change', '.chkCand', actualizarBtnEnviar);
-    $('#chkTodos').on('change', function () {
-        $('.chkCand').prop('checked', $(this).prop('checked'));
-        actualizarBtnEnviar();
     });
 
     /** Fija el toggle de resultado (apto/no_apto) y el input oculto.
@@ -265,20 +248,6 @@ $(function () {
                 cargar();
             } else { mostrarToast(res.message || 'No se pudo guardar.', 'error'); }
         });
-    });
-
-    $('#btnEnviarSel').on('click', function () {
-        var ids = $('.chkCand:checked').map(function () { return this.value; }).get();
-        if (!ids.length) return;
-        confirmarAccion('Se enviarán ' + ids.length + ' candidato(s) al solicitante para su revisión.', function () {
-            ajaxPost('acciones_candidatos.php', { accion: 'enviar_solicitante', 'ids[]': ids }, function (err, res) {
-                if (res && res.success) {
-                    mostrarToast(res.message, 'success');
-                    if (res.errores && res.errores.length) mostrarToast(res.errores.join(' · '), 'warning');
-                    cargar();
-                } else { mostrarToast((res && res.message) || 'Error.', 'error'); }
-            });
-        }, { titulo: 'Enviar al solicitante', confirmar: 'Sí, enviar', icon: 'question' });
     });
 
     $('#tablaCandidatos tbody').on('click', '.btnDescartar', function () {

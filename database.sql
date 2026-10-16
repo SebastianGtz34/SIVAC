@@ -82,13 +82,16 @@ CREATE TABLE IF NOT EXISTS vacantes (
 -- ----------------------------------------------------------------------------
 -- Candidatos (captura interna por RRHH; CV validado por firma de bytes)
 -- El estatus SOLO se cambia vía includes/flujo.php (mapa de transiciones).
--- El pipeline arranca en 'aspirante' y la aprobación del solicitante es
+-- El pipeline arranca en 'enviado_solicitante' (retro RRHH 2026-10-16: RRHH
+-- registra al candidato desde la vacante y con eso ya es del jefe; 'aspirante'
+-- queda sólo en fichas anteriores). La aprobación del solicitante es
 -- 'aprobado_jefe' (vocabulario de la BD).
 --
 -- Hay UNA sola entrevista agendada en el sistema: la del jefe
 -- (entrevista_confirmada → entrevistado). La entrevista de RRHH ocurre FUERA del
 -- sistema y deja constancia en entrevista_rrhh_fecha / entrevista_rrhh_resultado;
--- esa constancia es obligatoria para poder enviar el candidato al jefe. El ENUM
+-- como el psicométrico, se captura en cualquier momento y es obligatoria para
+-- salir de 'entrevistado' (propuesta o, en prácticas, documentación). El ENUM
 -- es la unión de ambas ramas; qué transiciones son válidas depende de
 -- vacantes.tipo y lo resuelve includes/flujo.php (temporal/permanente pasan por
 -- propuesta económica; practicas se la salta).
@@ -118,7 +121,7 @@ CREATE TABLE IF NOT EXISTS candidatos (
                 'entrevista_confirmada','entrevistado',
                 'propuesta_enviada','propuesta_expirada','propuesta_aceptada',
                 'documentacion','contratado','descartado')
-           NOT NULL DEFAULT 'aspirante',
+           NOT NULL DEFAULT 'enviado_solicitante',
     entrevista_rrhh_fecha    DATE NULL COMMENT 'constancia: fecha de la entrevista de RRHH (fuera del sistema)',
     entrevista_rrhh_resultado ENUM('apto','no_apto') NULL COMMENT 'constancia: veredicto de la entrevista de RRHH',
     entrevista_rrhh_observaciones TEXT NULL COMMENT 'constancia: observaciones de la entrevista de RRHH',

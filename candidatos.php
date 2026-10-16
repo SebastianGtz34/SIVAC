@@ -11,9 +11,6 @@ include 'encabezado.php';
 <div class="page-header">
     <h1><i class="fas fa-users mr-2 text-primary"></i>Candidatos</h1>
     <div>
-        <button class="btn btn-outline-primary" id="btnEnviarSel" disabled>
-            <i class="fas fa-paper-plane mr-1"></i> Enviar seleccionados al solicitante
-        </button>
         <button class="btn btn-primary" id="btnNuevoCandidato"><i class="fas fa-plus mr-1"></i> Nuevo candidato</button>
     </div>
 </div>
@@ -48,7 +45,6 @@ include 'encabezado.php';
         <div class="table-responsive">
             <table class="table table-hover w-100" id="tablaCandidatos">
                 <thead><tr>
-                    <th style="width:36px"><input type="checkbox" id="chkTodos"></th>
                     <th>Nombre</th><th>Vacante</th><th>Contacto</th>
                     <th class="text-center">Estatus</th><th class="text-center">CV</th><th></th>
                 </tr></thead>
@@ -113,6 +109,8 @@ include 'encabezado.php';
         <hr>
         <p class="text-muted small mb-2">
           <i class="fas fa-user-check mr-1"></i>Constancia de la entrevista de RRHH
+          <br>Puedes capturarla después desde «Editar»; es obligatoria, junto con el
+          psicométrico, para enviar la propuesta (o pasar a documentación en prácticas).
         </p>
         <div class="form-row align-items-end">
           <div class="form-group col-md-5">
