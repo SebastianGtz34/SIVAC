@@ -781,7 +781,6 @@ $(function () {
     var puedeSolicitar = <?= $puedeSolicitar ? 'true' : 'false' ?>;
     var NOMBRE_SESION = <?= json_encode($nombreSesion, JSON_UNESCAPED_UNICODE) ?>;
     var candidatosData = [];   // caché de mis_candidatos (se filtra por vacante)
-    var vacantesData = {};     // caché de mis_vacantes por id (para el aviso de lista vacía)
     var vacSel = 0;            // vacante seleccionada (master-detalle)
     var hayVacantes = false;   // para que el bloque de abajo no pida "selecciona una"
 
@@ -817,13 +816,7 @@ $(function () {
                 return;
             }
             hayVacantes = true;
-            vacantesData = {};
             res.data.forEach(function (v) {
-                vacantesData[v.id] = v;
-                // Candidatos que RRHH tiene capturados pero aún no le envía al jefe:
-                // no los puede abrir, así que no entran en «cand.» y se dicen aparte.
-                var enRrhh = Number(v.en_rrhh) || 0;
-                var txtRrhh = enRrhh + ' candidato' + (enRrhh === 1 ? '' : 's') + ' en revisión de RRHH';
                 // Una requisición pendiente o rechazada aún no tiene candidatos:
                 // en vez de tres ceros se muestra en qué va.
                 var pie;
@@ -835,20 +828,14 @@ $(function () {
                 } else if (Number(v.total) === 0) {
                     // La vacante existe y está viva, pero todavía no hay a quién
                     // revisar: tres ceros no lo explicaban.
-                    pie = enRrhh
-                        ? '<div class="small text-muted"><i class="fas fa-hourglass-half mr-1"></i>'
-                            + txtRrhh + '; aún no te envía ninguno.</div>'
-                        : '<div class="small text-muted"><i class="fas fa-search mr-1"></i>'
-                            + 'RRHH todavía no registra candidatos.</div>';
+                    pie = '<div class="small text-muted"><i class="fas fa-search mr-1"></i>'
+                        + 'RRHH todavía no registra candidatos.</div>';
                 } else {
                     pie = '<div class="d-flex justify-content-between small">'
                         + '<span><i class="fas fa-users mr-1"></i>' + v.total + ' cand.</span>'
                         + '<span class="text-warning"><i class="fas fa-eye mr-1"></i>' + v.por_revisar + ' por revisar</span>'
                         + '<span class="text-success"><i class="fas fa-user-check mr-1"></i>' + v.entrevistados + '</span>'
-                        + '</div>'
-                        + (enRrhh
-                            ? '<div class="small text-muted mt-1"><i class="fas fa-hourglass-half mr-1"></i>+ ' + txtRrhh + '</div>'
-                            : '');
+                        + '</div>';
                 }
                 $c.append(
                     '<div class="col-md-4 mb-3"><div class="card h-100 vac-card" data-id="' + v.id + '" style="cursor:pointer"><div class="card-body">'
@@ -901,11 +888,7 @@ $(function () {
         }
         var lista = candidatosData.filter(function (x) { return String(x.id_vacante) === String(vacSel); });
         if (!lista.length) {
-            var enRrhh = Number((vacantesData[vacSel] || {}).en_rrhh) || 0;
-            $c.html('<div class="col-12 text-muted small">' + (enRrhh
-                ? 'RRHH tiene ' + enRrhh + ' candidato' + (enRrhh === 1 ? '' : 's') + ' de esta vacante en revisión; '
-                    + 'aparecerán aquí, con su CV, en cuanto te los envíe.'
-                : 'Esta vacante no tiene candidatos por revisar.') + '</div>'); return;
+            $c.html('<div class="col-12 text-muted small">Esta vacante no tiene candidatos por revisar.</div>'); return;
         }
         lista.forEach(function (c) {
                 var esDescartado = c.estatus === 'descartado';

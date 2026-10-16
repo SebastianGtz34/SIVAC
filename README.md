@@ -20,8 +20,10 @@ propuesta con caducidad → documentación del seleccionado (validada por RRHH) 
 alta con avisos a TI/Viáticos/Teléfono/Marketing.
 
 La entrevista de **RRHH** ocurre fuera del sistema; SIVAC solo guarda su
-constancia (fecha + resultado), obligatoria para enviar el candidato al jefe. La
-única entrevista que el sistema agenda es la del jefe.
+constancia (fecha + resultado). Como el psicométrico, se captura en cualquier
+momento y es obligatoria antes de la propuesta. El candidato se registra desde la
+vacante y en ese momento ya le llega al jefe: no hay un paso aparte de «enviar
+al solicitante». La única entrevista que el sistema agenda es la del jefe.
 
 Las vacantes de **practicante** siguen el mismo camino pero corto: sin propuesta
 económica (pasan de entrevistado directo a documentación).

@@ -29,7 +29,8 @@ $accion = $_POST['accion'] ?? $_GET['accion'] ?? '';
 /**
  * Sanea la constancia de la entrevista de RRHH de un request.
  * Devuelve ['error'=>?string, 'fecha'=>?string, 'resultado'=>?string, 'observaciones'=>?string].
- * Todo es opcional al guardar; la obligatoriedad se exige al enviar al jefe.
+ * Todo es opcional al guardar; la obligatoriedad se exige al salir de
+ * 'entrevistado' (acciones_cierre.php → faltaParaCierre), igual que el psicométrico.
  */
 /** id de catálogo (nave/region) del POST: entero positivo o null si viene vacío. */
 function idCatalogoOpcional(array $post, string $campo): ?int {
@@ -91,6 +92,33 @@ function vacanteDe(mysqli $conn, int $id): ?array {
     $row = $stmt->get_result()->fetch_assoc();
     $stmt->close();
     return $row ?: null;
+}
+
+/**
+ * El candidato recién registrado ya es del solicitante: la vacante pasa de
+ * 'abierta' a 'en_proceso' y al jefe le llega el aviso. Antes esto lo hacía el
+ * botón «Enviar seleccionados al solicitante», que se retiró (retro RRHH
+ * 2026-10-16): RRHH registra al candidato desde la vacante, así que ese paso
+ * extra sólo dejaba candidatos que el jefe no veía (ticket 120).
+ */
+function asignarAlSolicitante(mysqli $conn, array $vac, int $idCandidato, string $nombre): void {
+    $idVac = (int)$vac['id'];
+    $upd = $conn->prepare("UPDATE vacantes SET estatus = 'en_proceso' WHERE id = ? AND estatus = 'abierta'");
+    $upd->bind_param('i', $idVac);
+    $upd->execute();
+    $upd->close();
+
+    // Sólo campana, como hacía el envío: registrar 10 candidatos no son 10
+    // correos al jefe, que además los ve juntos en su pestaña.
+    notificarEvento($conn, 'candidato_enviado', [
+        'destino_no_empleado' => (int)$vac['no_empleado_solicitante'],
+        'id_vacante' => $idVac, 'id_candidato' => $idCandidato,
+        'titulo' => 'Nuevo candidato para revisar — ' . $nombre,
+        'mensaje' => $vac['folio'] . ' · ' . $vac['puesto'],
+        // Su vista de solicitante, aunque además sea de RRHH: aquí actúa
+        // como dueño de la vacante, y es donde aprueba o descarta el CV.
+        'url' => 'embed_solicitante.php',
+    ]);
 }
 
 switch ($accion) {
@@ -212,8 +240,8 @@ switch ($accion) {
         $region    = idCatalogoOpcional($_POST, 'region');
         $correo    = trim($_POST['correo'] ?? '');
         $telefono  = trim($_POST['telefono'] ?? '');
-        // Constancia de la entrevista de RRHH (fuera del sistema). Opcional al
-        // crear, pero obligatoria para poder enviar el candidato al jefe.
+        // Constancia de la entrevista de RRHH (fuera del sistema). Opcional aquí:
+        // se exige antes de la propuesta/documentación (ver acciones_cierre.php).
         $entRrhh = sanearConstanciaRrhh($_POST);
         if ($entRrhh['error']) responder(false, $entRrhh['error']);
         [$entRrhhFecha, $entRrhhResVal, $entRrhhObsVal] = [$entRrhh['fecha'], $entRrhh['resultado'], $entRrhh['observaciones']];
@@ -232,9 +260,12 @@ switch ($accion) {
         $cv = sivacGuardarArchivo($_FILES['cv'], ['pdf'], SIVAC_MAX_CV, SIVAC_DIR_CV);
         if (!$cv['ok']) responder(false, $cv['message']);
 
+        // Nace ya asignado al solicitante (ver asignarAlSolicitante). El estatus va
+        // EXPLÍCITO y no por el DEFAULT de la columna, que en la BD y en
+        // database.sql llegó a no coincidir.
         $stmt = $conn->prepare(
-            "INSERT INTO candidatos (id_vacante, nombre, apellidos, correo, telefono, cv_archivo, cv_nombre_original, cv_tamano, entrevista_rrhh_fecha, entrevista_rrhh_resultado, entrevista_rrhh_observaciones, nave, region, creador_por)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO candidatos (id_vacante, estatus, nombre, apellidos, correo, telefono, cv_archivo, cv_nombre_original, cv_tamano, entrevista_rrhh_fecha, entrevista_rrhh_resultado, entrevista_rrhh_observaciones, nave, region, creador_por)
+             VALUES (?, 'enviado_solicitante', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         );
         $stmt->bind_param('issssssisssiii', $idVacante, $nombre, $apellidos, $correo, $telefono, $cv['nombre'], $cv['original'], $cv['tamano'], $entRrhhFecha, $entRrhhResVal, $entRrhhObsVal, $nave, $region, $noEmp);
         $ok = $stmt->execute();
@@ -242,14 +273,16 @@ switch ($accion) {
         $stmt->close();
         if (!$ok) { @unlink(SIVAC_DIR_CV . $cv['nombre']); responder(false, 'No se pudo registrar el candidato.'); }
 
-        // Historial inicial
+        // Historial inicial (línea base del tiempo por etapa del dashboard).
         $hist = $conn->prepare(
             "INSERT INTO candidatos_historial (id_candidato, estatus_anterior, estatus_nuevo, no_empleado, comentario)
-             VALUES (?, 'aspirante', 'aspirante', ?, 'Candidato capturado')"
+             VALUES (?, 'enviado_solicitante', 'enviado_solicitante', ?, 'Candidato capturado y asignado a la vacante')"
         );
         $hist->bind_param('ii', $id, $noEmp);
         $hist->execute();
         $hist->close();
+
+        asignarAlSolicitante($conn, $vac, $id, trim($nombre . ' ' . $apellidos));
 
         // El veredicto de RRHH (incluido "No apto") ya NO descarta solo: nadie
         // se descarta sin un botón explícito.
@@ -308,22 +341,20 @@ switch ($accion) {
         // Se copia lo que es de la PERSONA (contacto, CV, constancia de RRHH y
         // psicométrico: no tiene sentido volver a entrevistarla ni reaplicarle la
         // prueba por cambiar de vacante) y NADA del proceso anterior: la ficha nueva
-        // nace 'aspirante', sin descarte, sin citas y sin historial heredado.
+        // nace asignada al solicitante de la vacante destino (igual que un alta
+        // normal), sin descarte, sin citas y sin historial heredado.
         //
         // El CV apunta al MISMO archivo en disco a propósito: es el mismo documento,
         // y duplicarlo dejaría dos copias que se desincronizan al reemplazarlo.
         $persona = sivacIdPersona($conn, $id);
         $stmt = $conn->prepare(
-            // El estatus va EXPLÍCITO, no por DEFAULT de la columna: el de la BD no
-            // coincide con el de database.sql ('enviado_solicitante' contra
-            // 'aspirante'), y una copia que naciera ya enviada se saltaría la
-            // revisión de RRHH sin que nadie lo pidiera.
+            // El estatus va EXPLÍCITO, no por el DEFAULT de la columna (ver 'crear').
             "INSERT INTO candidatos (id_vacante, id_origen, estatus, nombre, apellidos, correo, telefono,
                                      cv_archivo, cv_nombre_original, cv_tamano,
                                      entrevista_rrhh_fecha, entrevista_rrhh_resultado, entrevista_rrhh_observaciones,
                                      psicometrico_fecha, psicometrico_calificacion, psicometrico_resultado, psicometrico_observaciones,
                                      nave, region, creador_por)
-             VALUES (?, ?, 'aspirante', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+             VALUES (?, ?, 'enviado_solicitante', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         );
         if (!$stmt) responder(false, 'No se pudo copiar al candidato: ' . $conn->error);
         $stmt->bind_param(
@@ -342,11 +373,13 @@ switch ($accion) {
         $comentario = 'Postulado también a ' . $vac['folio'] . ' (copia de la ficha #' . $id . ')';
         $hist = $conn->prepare(
             "INSERT INTO candidatos_historial (id_candidato, estatus_anterior, estatus_nuevo, no_empleado, comentario)
-             VALUES (?, 'aspirante', 'aspirante', ?, ?)"
+             VALUES (?, 'enviado_solicitante', 'enviado_solicitante', ?, ?)"
         );
         $hist->bind_param('iis', $nuevo, $noEmp, $comentario);
         $hist->execute();
         $hist->close();
+
+        asignarAlSolicitante($conn, $vac, $nuevo, trim($o['nombre'] . ' ' . $o['apellidos']));
 
         responder(true, 'Candidato postulado a ' . $vac['folio'] . '. Sus documentos ya entregados se reutilizan.',
             ['id' => $nuevo]);
@@ -421,60 +454,6 @@ switch ($accion) {
         $stmt->bind_param('ssssi', $ps['fecha'], $ps['calificacion'], $ps['resultado'], $ps['observaciones'], $id);
         $ok = $stmt->execute(); $stmt->close();
         responder($ok, $ok ? 'Psicométrico guardado.' : 'No se pudo guardar el psicométrico.');
-    }
-
-    case 'enviar_solicitante': {
-        // Batch: "mandar candidatos" al solicitante. ids[] = lista de candidatos.
-        $ids = $_POST['ids'] ?? [];
-        if (!is_array($ids) || !$ids) responder(false, 'Selecciona al menos un candidato.');
-
-        $enviados = 0; $errores = [];
-        foreach ($ids as $raw) {
-            $idc = (int)$raw;
-            if ($idc <= 0) continue;
-            // Relee estatus + CV + constancia RRHH + vacante.
-            $stmt = $conn->prepare(
-                "SELECT c.estatus, c.cv_archivo, TRIM(CONCAT_WS(' ', c.nombre, NULLIF(c.apellidos,''))) AS nombre,
-                        c.entrevista_rrhh_fecha, c.entrevista_rrhh_resultado,
-                        v.id AS id_vacante, v.folio, v.puesto, v.no_empleado_solicitante
-                 FROM candidatos c INNER JOIN vacantes v ON v.id = c.id_vacante WHERE c.id = ? LIMIT 1"
-            );
-            $stmt->bind_param('i', $idc); $stmt->execute();
-            $c = $stmt->get_result()->fetch_assoc(); $stmt->close();
-            if (!$c) { $errores[] = "#$idc: no existe"; continue; }
-            if ($c['estatus'] !== 'aspirante') { $errores[] = "#$idc: no está en captura"; continue; }
-            if (!$c['cv_archivo']) { $errores[] = "#$idc: sin CV"; continue; }
-            // La constancia de la entrevista de RRHH es obligatoria antes de
-            // pasar el candidato al jefe (la de RRHH va primero, fuera del sistema).
-            if (empty($c['entrevista_rrhh_fecha']) || trim((string)$c['entrevista_rrhh_resultado']) === '') {
-                $errores[] = "#$idc: falta la constancia de la entrevista de RRHH (fecha y resultado)";
-                continue;
-            }
-
-            $r = cambiarEstatusCandidato($conn, $idc, 'enviado_solicitante', $noEmp, 'Enviado al solicitante para revisión.');
-            if (!$r['ok']) { $errores[] = "#$idc: " . $r['message']; continue; }
-            $enviados++;
-
-            // Vacante abierta → en_proceso.
-            $idVac = (int)$c['id_vacante'];
-            $updVac = $conn->prepare("UPDATE vacantes SET estatus = 'en_proceso' WHERE id = ? AND estatus = 'abierta'");
-            $updVac->bind_param('i', $idVac);
-            $updVac->execute();
-            $updVac->close();
-
-            // Notifica al solicitante. Sólo campana: enviar 10 candidatos ya no son
-            // 10 correos al jefe, que además los ve juntos en su pestaña.
-            notificarEvento($conn, 'candidato_enviado', [
-                'destino_no_empleado' => (int)$c['no_empleado_solicitante'],
-                'id_vacante' => (int)$c['id_vacante'], 'id_candidato' => $idc,
-                'titulo' => 'Nuevo candidato para revisar — ' . $c['nombre'],
-                'mensaje' => $c['folio'] . ' · ' . $c['puesto'],
-                // Su vista de solicitante, aunque además sea de RRHH: aquí actúa
-                // como dueño de la vacante, y es donde aprueba o descarta el CV.
-                'url' => 'embed_solicitante.php',
-            ]);
-        }
-        responder($enviados > 0, $enviados > 0 ? "$enviados candidato(s) enviado(s)." : 'No se envió ninguno.', ['errores' => $errores]);
     }
 
     case 'descartar': {

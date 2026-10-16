@@ -18,8 +18,13 @@
  * Hay UNA sola entrevista agendada en el sistema: la del jefe
  *   (aprobado_jefe → entrevista_confirmada → entrevistado).
  * La entrevista de RRHH ocurre FUERA del sistema y solo deja constancia (fecha y
- * resultado en la tabla candidatos), que es obligatoria para enviar el candidato
- * al jefe (lo valida acciones_candidatos.php, no el mapa).
+ * resultado en la tabla candidatos). Igual que el psicométrico, se captura en
+ * cualquier momento y es obligatoria para salir de 'entrevistado' (lo valida
+ * acciones_cierre.php, no el mapa).
+ *
+ * Desde la retro RRHH del 2026-10-16 un candidato NACE en 'enviado_solicitante':
+ * RRHH lo registra desde la vacante y con eso ya es del jefe. 'aspirante' y su
+ * transición se conservan sólo para leer fichas anteriores.
  *
  * Reglas duras de negocio (además del mapa) las validan los endpoints antes de
  * llamar a la transición.
