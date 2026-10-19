@@ -120,7 +120,7 @@ switch ($accion) {
             . '<strong>Opción 2:</strong> ' . $fmt2 . '<br><br>'
             . ($notas !== '' ? 'Notas: ' . htmlspecialchars($notas) . '<br><br>' : '')
             . 'Responde este correo indicando cuál te queda mejor.';
-        notificarEvento($conn, 'entrevista_propuesta', [
+        $avisoCorreo = notificarCandidato($conn, 'entrevista_propuesta', [
             'id_candidato' => $id, 'id_vacante' => (int)$c['id_vacante'],
             'titulo' => 'Opciones de entrevista enviadas — ' . $c['nombre'],
             'correos' => array_filter([$c['correo']]),
@@ -128,7 +128,8 @@ switch ($accion) {
             'correo_titulo' => 'Entrevista con el jefe',
             'correo_html' => $cuerpo,
         ]);
-        responder(true, 'Disponibilidad registrada; se enviaron las opciones al candidato.');
+        responder(true, 'Disponibilidad registrada.' . ($avisoCorreo ?: ' Se enviaron las opciones al candidato.'),
+                  ['aviso' => $avisoCorreo ? 1 : 0]);
     }
 
     case 'confirmar_entrevista': {
@@ -177,7 +178,7 @@ switch ($accion) {
             . ($notas !== '' ? '<br><br>Notas: ' . htmlspecialchars($notas) : '');
         $correos = array_filter([$c['correo']]);
 
-        notificarEvento($conn, 'entrevista_confirmada', [
+        $avisoCorreo = notificarCandidato($conn, 'entrevista_confirmada', [
             'destino_no_empleado' => (int)$c['no_empleado_solicitante'],
             'id_candidato' => $id, 'id_vacante' => (int)$c['id_vacante'],
             'titulo' => 'Entrevista con el jefe confirmada — ' . $c['nombre'],
@@ -189,7 +190,9 @@ switch ($accion) {
             'correo_titulo' => 'Entrevista con el jefe confirmada',
             'correo_html' => $cuerpoCand,
         ]);
-        responder(true, 'Entrevista con el jefe confirmada para ' . $fechaFmt . '.');
+        responder(true, 'Entrevista con el jefe confirmada para ' . $fechaFmt . '.'
+            . ($avisoCorreo ?: ' Se le avisó al candidato por correo.'),
+            ['aviso' => $avisoCorreo ? 1 : 0]);
     }
 
     case 'sin_fecha_candidato': {

@@ -68,7 +68,7 @@ $(function () {
     // Prácticas: entrevistado → documentación (sin propuesta de por medio).
     $('#tablaCierre tbody').on('click', '.btnDocDirecto', function () {
         var id = $(this).data('id');
-        confirmarAccion('El candidato de prácticas pasará a documentación con 15 días para entregar sus documentos.',
+        confirmarAccion('El candidato de prácticas pasará a documentación. Su plazo para entregar documentos vence el día de su ingreso.',
             function () {
                 ajaxPost('acciones_cierre.php', { accion: 'iniciar_documentacion', id: id }, function (err, res) {
                     if (res && res.success) { mostrarToast(res.message, 'success'); cargar(); }
@@ -81,7 +81,7 @@ $(function () {
         e.preventDefault();
         var data = $(this).serializeArray(); data.push({ name: 'accion', value: 'enviar_propuesta' });
         ajaxPost('acciones_cierre.php', data, function (err, res) {
-            if (res && res.success) { $('#modalPropuesta').modal('hide'); mostrarToast(res.message, 'success'); cargar(); }
+            if (res && res.success) { $('#modalPropuesta').modal('hide'); mostrarToast(res.message, res.aviso ? 'warning' : 'success'); cargar(); }
             else { mostrarToast((res && res.message) || 'Error.', 'error'); }
         });
     });
@@ -117,14 +117,26 @@ $(function () {
         $('#docsTitulo').text((docSoloDatos ? 'Expediente — ' : 'Documentación — ') + $(this).data('nombre'));
         $('#ingreso_fecha').val(''); 
         $('#prorroga_fecha').val('');
-        $('#resumenFechas, #limiteActual').empty();   // no dejar a la vista las fechas del candidato anterior
-        $('#prorroga_fecha').removeAttr('min');
-        limiteDocs = null;
+        $('#resumenFechas').empty();   // no dejar a la vista las fechas del candidato anterior
         $('#formAvisosAlta').removeClass('d-none');
         cargarFicha();
         cargarDatosAlta();
         cargarAreasAlta();
         $('#modalDocs').modal('show');
+    });
+
+    // Al cerrar, nada de este candidato se queda para el siguiente: si la carga
+    // del otro fallaba, su modal mostraba el CURP/RFC/NSS y las fechas de éste, y
+    // «Guardar» los escribía en el candidato equivocado. Con docCandidato en 0
+    // también se descartan las respuestas que lleguen tarde (ver cargarFicha).
+    $('#modalDocs').on('hidden.bs.modal', function () {
+        docCandidato = 0;
+        limiteDocs = null;
+        $('#formDatosAlta')[0].reset();
+        $('#formDatosAlta').find('input, select, button').prop('disabled', false);
+        $('#listaDocs, #resumenFechas, #limiteActual').empty();
+        $('#prorroga_fecha').removeAttr('min');
+        $('#datosAltaAviso').addClass('d-none');
     });
 
     /**
@@ -199,7 +211,7 @@ $(function () {
         // que es hasta cuándo sirve el enlace.
         var bloqueLimite = '<div class="alert alert-info small py-2 mx-2 mb-2">'
             + '<i class="fas fa-calendar-check mr-1"></i>Fecha límite para entregar documentos: '
-            + (limite ? '<strong>' + escHtml(limite) + '</strong>' : '<em>sin registrar</em>')
+            + (limite ? '<strong>' + escHtml(limite) + '</strong>' : '<em>el día de su ingreso (aún sin registrar)</em>')
             + '</div>';
 
         // Desde la retro del 2026-10-06 la contraseña se puede volver a consultar,
@@ -298,7 +310,9 @@ $(function () {
     }
 
     function cargarFicha() {
-        ajaxPost('acciones_candidatos.php', { accion: 'detalle', id: docCandidato }, function (err, res) {
+        var id = docCandidato;
+        ajaxPost('acciones_candidatos.php', { accion: 'detalle', id: id }, function (err, res) {
+            if (id !== docCandidato) return;   // era de otro candidato y llegó tarde
             if (err || !res || !res.success) return;
             var docs = res.documentos || [];
             var html = '';
@@ -325,7 +339,9 @@ $(function () {
 
     /** Trae lo que el candidato capturó en su portal y pinta qué falta. */
     function cargarDatosAlta() {
-        ajaxPost('acciones_cierre.php', { accion: 'datos_alta', id: docCandidato }, function (err, res) {
+        var id = docCandidato;
+        ajaxPost('acciones_cierre.php', { accion: 'datos_alta', id: id }, function (err, res) {
+            if (id !== docCandidato) return;   // era de otro candidato y llegó tarde
             if (err || !res || !res.success) return;
             var d = res.datos || {};
             // El catálogo de tipo de sangre viene del servidor: es el de gestionPersonal.
@@ -369,9 +385,10 @@ $(function () {
     }
 
     /**
-     * Las dos fechas del trámite, juntas y con el aviso cuando la entrega de
-     * documentos vence después del ingreso. Además precarga la fecha de ingreso
-     * ya registrada: el campo salía vacío y parecía que no se había guardado.
+     * Las dos fechas del trámite, juntas y con el aviso cuando una prórroga dejó
+     * la entrega de documentos después del ingreso (sin prórroga son la misma).
+     * Además precarga la fecha de ingreso ya registrada: el campo salía vacío y
+     * parecía que no se había guardado.
      */
     function pintarFechas(ct) {
         if (ct.fecha_ingreso) $('#ingreso_fecha').val(ct.fecha_ingreso);
@@ -391,7 +408,7 @@ $(function () {
         limiteDocs = ct.fecha_limite_documentos ? String(ct.fecha_limite_documentos).substring(0, 10) : null;
         var $p = $('#prorroga_fecha');
         if (!limiteDocs) {
-            $('#limiteActual').html('<span class="text-muted">Sin fecha límite registrada.</span>');
+            $('#limiteActual').html('<span class="text-muted">Se fija al registrar la fecha de ingreso.</span>');
             $p.removeAttr('min');
             return;
         }
@@ -458,7 +475,7 @@ $(function () {
         }).then(function (r) {
             if (!r.isConfirmed || !r.value) return;
             ajaxPost('acciones_cierre.php', { accion: 'validar_documento', id_documento: idDoc, decision: 'rechazar', motivo: r.value }, function (err, res) {
-                if (res && res.success) { mostrarToast(res.message, 'info'); cargarFicha(); }
+                if (res && res.success) { mostrarToast(res.message, res.aviso ? 'warning' : 'info'); cargarFicha(); }
                 else { mostrarToast((res && res.message) || 'Error.', 'error'); }
             });
         });

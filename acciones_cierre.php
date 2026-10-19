@@ -82,9 +82,10 @@ function faltaParaCierre(array $c): string {
 /**
  * Aviso (texto vacío = todo en orden) cuando la fecha límite de documentos cae
  * DESPUÉS del ingreso: el expediente debería estar completo antes de que la
- * persona entre. No bloquea a propósito —hay altas urgentes que se cierran con
- * documentos en tránsito— pero RRHH tiene que verlo, porque las dos fechas se
- * capturan por separado y nada las relacionaba.
+ * persona entre. Desde el 2026-10-19 el límite ES la fecha de ingreso (se fija
+ * al registrarla), así que esto sólo salta con una prórroga que lo pasó. No
+ * bloquea a propósito —hay altas urgentes que se cierran con documentos en
+ * tránsito— pero RRHH tiene que verlo.
  */
 function avisoFechaDocs(?string $limite, ?string $ingreso): string {
     if (!$limite || !$ingreso) return '';
@@ -290,7 +291,7 @@ switch ($accion) {
             . ($condiciones ? '<strong>Condiciones:</strong><br>' . nl2br(htmlspecialchars($condiciones)) . '<br><br>' : '')
             . 'Esta propuesta es válida hasta el <strong>' . date('d/m/Y', $tc) . '</strong>. '
             . 'Por favor responde antes de esa fecha.';
-        notificarEvento($conn, 'propuesta_enviada', [
+        $avisoCorreo = notificarCandidato($conn, 'propuesta_enviada', [
             'id_candidato' => $id, 'id_vacante' => (int)$c['id_vacante'],
             'titulo' => 'Propuesta enviada a ' . $c['nombre'],
             'correos' => [$c['correo']],
@@ -298,7 +299,8 @@ switch ($accion) {
             'correo_titulo' => 'Propuesta laboral',
             'correo_html' => $cuerpo,
         ]);
-        responder(true, 'Propuesta enviada.');
+        responder(true, 'Propuesta registrada.' . ($avisoCorreo ?: ' Se le envió al candidato por correo.'),
+                  ['aviso' => $avisoCorreo ? 1 : 0]);
     }
 
     case 'responder_propuesta': {
@@ -343,12 +345,12 @@ switch ($accion) {
             $r = cambiarEstatusCandidato($conn, $id, 'propuesta_aceptada', $noEmp, 'Propuesta aceptada por el candidato.');
             if (!$r['ok']) responder(false, $r['message']);
             // Avance automático a documentación + creación de la contratación.
+            // Sin fecha límite todavía: es la de ingreso y se fija al registrarla.
             cambiarEstatusCandidato($conn, $id, 'documentacion', $noEmp, 'Inicia proceso de documentación.');
-            $limite = date('Y-m-d', strtotime('+15 days'));
-            $stmt = $conn->prepare("INSERT IGNORE INTO contrataciones (id_candidato, fecha_limite_documentos) VALUES (?, ?)");
-            $stmt->bind_param('is', $id, $limite);
+            $stmt = $conn->prepare("INSERT IGNORE INTO contrataciones (id_candidato) VALUES (?)");
+            $stmt->bind_param('i', $id);
             $stmt->execute(); $stmt->close();
-            $avisarRrhhPropuesta(true, 'entra a documentación; entrega hasta el ' . date('d/m/Y', strtotime($limite)));
+            $avisarRrhhPropuesta(true, 'entra a documentación; registra su fecha de ingreso, que es también su límite para entregar documentos');
             responder(true, 'Propuesta aceptada. Candidato en documentación.');
         } elseif ($respuesta === 'rechazada') {
             $updP = $conn->prepare("UPDATE propuestas SET estatus = 'rechazada', fecha_respuesta = NOW() WHERE id = ?");
@@ -389,9 +391,9 @@ switch ($accion) {
         $r = cambiarEstatusCandidato($conn, $id, 'documentacion', $noEmp, 'Candidato de prácticas aceptado; inicia documentación.');
         if (!$r['ok']) responder(false, $r['message']);
 
-        $limite = date('Y-m-d', strtotime('+15 days'));
-        $stmt = $conn->prepare("INSERT IGNORE INTO contrataciones (id_candidato, fecha_limite_documentos) VALUES (?, ?)");
-        $stmt->bind_param('is', $id, $limite);
+        // Sin fecha límite todavía: es la de ingreso y se fija al registrarla.
+        $stmt = $conn->prepare("INSERT IGNORE INTO contrataciones (id_candidato) VALUES (?)");
+        $stmt->bind_param('i', $id);
         $stmt->execute(); $stmt->close();
 
         responder(true, 'Candidato en documentación.');
@@ -533,16 +535,18 @@ switch ($accion) {
         //
         // Validar NO manda correo: son hasta 8 documentos por candidato y el
         // resultado ya se ve en su portal, con palomita por renglón. Rechazar SÍ,
-        // porque le pide una acción (volver a subirlo) y puede no entrar solo.
+        // porque le pide una acción (volver a subirlo) y puede no entrar solo; por
+        // eso un candidato sin correo ya no se brinca en silencio: RRHH se entera.
         $c = ctxCandidato($conn, (int)$doc['id_candidato']);
-        if ($c && $c['correo']) {
+        $avisoCorreo = '';
+        if ($c) {
             if ($decision === 'validar') {
                 notificarEvento($conn, 'documento_validado', [
                     'id_candidato' => (int)$doc['id_candidato'], 'id_vacante' => (int)$c['id_vacante'],
                     'titulo' => 'Documento validado — ' . $doc['doc_tipo'],
                 ]);
             } else {
-                notificarEvento($conn, 'documento_rechazado', [
+                $avisoCorreo = notificarCandidato($conn, 'documento_rechazado', [
                     'id_candidato' => (int)$doc['id_candidato'], 'id_vacante' => (int)$c['id_vacante'],
                     'titulo' => 'Documento rechazado — ' . $doc['doc_tipo'],
                     'correos' => [$c['correo']],
@@ -556,7 +560,8 @@ switch ($accion) {
             }
         }
 
-        responder(true, $decision === 'validar' ? 'Documento validado.' : 'Documento rechazado.');
+        responder(true, $decision === 'validar' ? 'Documento validado.' : ('Documento rechazado.' . $avisoCorreo),
+                  ['aviso' => $avisoCorreo ? 1 : 0]);
     }
 
     // NOTA: RRHH ya NO elimina documentos (sólo ve y valida). Un documento
@@ -625,8 +630,16 @@ switch ($accion) {
         if ($id <= 0) responder(false, 'Id inválido.');
         if (!strtotime($fecha)) responder(false, 'Fecha inválida.');
         $fechaVal = date('Y-m-d', strtotime($fecha));
-        $stmt = $conn->prepare("UPDATE contrataciones SET fecha_ingreso = ? WHERE id_candidato = ?");
-        $stmt->bind_param('si', $fechaVal, $id);
+        // La fecha límite de documentos es la de ingreso (retro 2026-10-19) y la
+        // sigue cada vez que el ingreso se mueve. La excepción es una prórroga que
+        // ya va más allá: se le avisó por correo al candidato y no se le recorta.
+        $stmt = $conn->prepare(
+            "UPDATE contrataciones
+                SET fecha_ingreso = ?,
+                    fecha_limite_documentos = IF(prorrogas > 0 AND fecha_limite_documentos > ?, fecha_limite_documentos, ?)
+              WHERE id_candidato = ?"
+        );
+        $stmt->bind_param('sssi', $fechaVal, $fechaVal, $fechaVal, $id);
         $ok = $stmt->execute(); $stmt->close();
         if (!$ok) responder(false, 'No se pudo registrar.');
 
@@ -634,7 +647,11 @@ switch ($accion) {
         $stmt->bind_param('i', $id); $stmt->execute();
         $ct = $stmt->get_result()->fetch_assoc(); $stmt->close();
         $aviso = avisoFechaDocs($ct['fecha_limite_documentos'] ?? null, $fechaVal);
-        responder(true, $aviso ?: 'Fecha de ingreso registrada.', ['aviso' => $aviso]);
+        responder(true, $aviso
+            ? 'Fecha de ingreso registrada. Se mantiene la prórroga: los documentos vencen el '
+              . date('d/m/Y', strtotime($ct['fecha_limite_documentos'])) . ', después del ingreso.'
+            : 'Fecha de ingreso registrada. Es también la fecha límite para entregar documentos.',
+            ['aviso' => $aviso]);
     }
 
     case 'prorroga_documentos': {
@@ -643,11 +660,17 @@ switch ($accion) {
         if ($id <= 0) responder(false, 'Id inválido.');
         $tf = strtotime($fecha);
         if (!$tf) responder(false, 'Fecha inválida.');
+        $c = ctxCandidato($conn, $id);
+        if (!$c) responder(false, 'Candidato no encontrado.');
 
         $stmt = $conn->prepare("SELECT fecha_limite_documentos, fecha_ingreso FROM contrataciones WHERE id_candidato = ? LIMIT 1");
         $stmt->bind_param('i', $id); $stmt->execute();
         $row = $stmt->get_result()->fetch_assoc(); $stmt->close();
         if (!$row) responder(false, 'No hay contratación en curso.');
+        // El plazo base es el día de ingreso: sin él no hay nada que ampliar.
+        if (!$row['fecha_ingreso']) {
+            responder(false, 'Registra primero la fecha de ingreso: la entrega de documentos vence ese día y la prórroga se da a partir de ahí.');
+        }
         if ($row['fecha_limite_documentos'] && $tf <= strtotime($row['fecha_limite_documentos'])) {
             responder(false, 'La prórroga debe ser posterior a la fecha límite actual.');
         }
@@ -655,21 +678,20 @@ switch ($accion) {
         $stmt = $conn->prepare("UPDATE contrataciones SET fecha_limite_documentos = ?, prorrogas = prorrogas + 1 WHERE id_candidato = ?");
         $stmt->bind_param('si', $fechaVal, $id);
         $ok = $stmt->execute(); $stmt->close();
-
-        $c = ctxCandidato($conn, $id);
-        if ($ok && $c) {
-            notificarEvento($conn, 'prorroga_documentos', [
-                'id_candidato' => $id, 'id_vacante' => (int)$c['id_vacante'],
-                'titulo' => 'Prórroga de documentos — ' . $c['nombre'],
-                'correos' => [$c['correo']],
-                'correo_asunto' => 'MESS — Prórroga de entrega de documentos',
-                'correo_titulo' => 'Prórroga de documentos',
-                'correo_html' => 'Hola ' . htmlspecialchars($c['nombre']) . ',<br><br>Se amplió la fecha límite para entregar tu documentación hasta el <strong>' . date('d/m/Y', $tf) . '</strong>.',
-            ]);
-        }
         if (!$ok) responder(false, 'No se pudo registrar.');
+
+        $avisoCorreo = notificarCandidato($conn, 'prorroga_documentos', [
+            'id_candidato' => $id, 'id_vacante' => (int)$c['id_vacante'],
+            'titulo' => 'Prórroga de documentos — ' . $c['nombre'],
+            'correos' => [$c['correo']],
+            'correo_asunto' => 'MESS — Prórroga de entrega de documentos',
+            'correo_titulo' => 'Prórroga de documentos',
+            'correo_html' => 'Hola ' . htmlspecialchars($c['nombre']) . ',<br><br>Se amplió la fecha límite para entregar tu documentación hasta el <strong>' . date('d/m/Y', $tf) . '</strong>.',
+        ]);
         $aviso = avisoFechaDocs($fechaVal, $row['fecha_ingreso'] ?? null);
-        responder(true, $aviso ?: 'Prórroga registrada.', ['aviso' => $aviso]);
+        responder(true, 'Prórroga registrada.' . ($avisoCorreo ?: ' Se le avisó al candidato por correo.')
+            . ($aviso ? ' ' . $aviso : ''),
+            ['aviso' => ($aviso || $avisoCorreo) ? 1 : 0]);
     }
 
     case 'enviar_reglamento': {
