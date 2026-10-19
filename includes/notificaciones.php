@@ -212,6 +212,27 @@ if (!function_exists('notificarEvento')) {
         return $id;
     }
 
+    /**
+     * notificarEvento() para las acciones de RRHH que le escriben al CANDIDATO
+     * (opciones y confirmación de entrevista, propuesta, documento rechazado,
+     * prórroga). Devuelve '' si el correo salió, o la advertencia para pegarla al
+     * mensaje de la respuesta —con `aviso` = 1, para que el toast salga en ámbar—.
+     *
+     * Hasta la retro del 2026-10-19 esas acciones se reportaban en verde aunque
+     * el correo no saliera (SMTP caído, config_correo.php ausente, candidato sin
+     * correo) y RRHH daba por avisado a alguien que no recibió nada. El
+     * reglamento y los avisos del alta ya lo revisaban por su cuenta.
+     */
+    function notificarCandidato(mysqli $conn, string $evento, array $datos): string {
+        $envio = null;
+        notificarEvento($conn, $evento, $datos, $envio);
+        if (!empty($envio['ok'])) return '';
+        $motivo = !empty($envio['intentado'])
+            ? (($envio['error'] ?? '') ?: 'No se pudo enviar')
+            : 'no tiene correo registrado';
+        return ' ⚠️ El correo al candidato NO se envió: ' . rtrim($motivo, '.') . '. Avísale por otro medio.';
+    }
+
     /** Contador de notificaciones de SIVAC no leídas de un empleado (campana del portal). */
     function sivacNoLeidas(mysqli $conn, int $noEmpleado): int {
         $stmt = $conn->prepare(

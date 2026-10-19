@@ -64,6 +64,7 @@ include 'encabezado.php';
               <input type="date" class="form-control" id="ingreso_fecha">
               <div class="input-group-append"><button class="btn btn-outline-primary" id="btnIngreso">Guardar</button></div>
             </div>
+            <small class="form-text text-muted">Es también la fecha límite para que el candidato entregue sus documentos.</small>
           </div>
           <!-- Prórroga: se muestra la fecha límite VIGENTE arriba del campo. Antes
                sólo había un calendario vacío y un botón «Prórroga», y no se veía
@@ -74,12 +75,12 @@ include 'encabezado.php';
               <input type="date" class="form-control" id="prorroga_fecha" title="Nueva fecha límite">
               <div class="input-group-append"><button class="btn btn-outline-secondary" id="btnProrroga"><i class="fas fa-calendar-plus mr-1"></i>Ampliar plazo</button></div>
             </div>
-            <small class="form-text text-muted">Elige la nueva fecha límite; al candidato se le avisa por correo.</small>
+            <small class="form-text text-muted">Sólo si hace falta dar tiempo después del ingreso; al candidato se le avisa por correo.</small>
           </div>
-          <!-- Las dos fechas juntas: se capturan en campos separados y nada
-               relacionaba una con otra. Si la entrega vence después del ingreso
-               se avisa, pero no se bloquea (hay altas que se cierran con
-               documentos en tránsito). Lo pinta js/contrataciones.js. -->
+          <!-- Las dos fechas juntas. El límite es el día de ingreso; si una
+               prórroga lo deja después, se avisa pero no se bloquea (hay altas
+               que se cierran con documentos en tránsito). Lo pinta
+               js/contrataciones.js. -->
           <div id="resumenFechas" class="small mb-3"></div>
           <button class="btn btn-outline-info btn-sm mb-2" id="btnReglamento"><i class="fas fa-book mr-1"></i>Enviar reglamento</button>
           <div id="cierreInfo" class="small text-muted"></div>

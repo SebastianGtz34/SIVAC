@@ -177,6 +177,17 @@ mismo evento y candidato): subir ocho documentos deja un aviso, no ocho. Y van
 **sin correo**: son avisos de trabajo, no trámite. Como el que actúa no es un
 empleado, la fila queda con `id_usuario_actualiza = 0` y el texto se basta solo.
 
+### Un correo que no salió se dice
+Toda acción que manda correo le dice a quien la hizo si **no** salió (SMTP caído,
+falta `config_correo.php`, correo apagado, candidato sin correo): la acción se
+guarda igual, pero el toast sale en **ámbar** con el motivo. Para los correos al
+candidato (opciones y confirmación de entrevista, propuesta, documento
+rechazado, prórroga) se usa `notificarCandidato()`, que manda y devuelve la
+advertencia lista para pegarla al mensaje con `aviso` = 1. El reglamento (cuyo
+envío *es* la acción, así que si falla, falla) y los avisos del alta por área
+lo resuelven con el `$envio` de `notificarEvento()`. Un correo nuevo tiene que
+entrar por uno de esos dos caminos.
+
 > **Del lado de loginMaster** hay que tener aplicados los 3 cambios de
 > `funcionesGlobales.js`: la entrada `sivac` en `endpointsPorSistema`, el ícono
 > (`fa-user-tie`) y el caso de redirección directa. Ese archivo **no vive en este
@@ -231,6 +242,11 @@ completar alta exige fecha de ingreso + reglamento enviado + documentos
 obligatorios **validados** por RRHH **+ los datos del alta completos**; las
 propuestas vencidas expiran automáticamente (lazy) al cargar cierre/dashboard.
 
+La **fecha límite de documentos** es la fecha de ingreso: se fija cuando RRHH
+la registra y la sigue si se mueve (al entrar a documentación queda vacía). Una
+prórroga sólo se da con el ingreso registrado y puede dejarla después de él; si
+el ingreso cambia, una prórroga que ya caía más tarde no se recorta.
+
 ### Datos del alta (lo que jala gestionPersonal)
 `candidatos_datos_alta` guarda CURP, RFC, NSS, sexo, fecha de nacimiento y tipo
 de sangre. Los captura el **candidato** en su portal y RRHH los ve y corrige en
@@ -281,7 +297,8 @@ no cambie si el empleado se mueve de región después.
 5. **Escape de toda salida** — `htmlspecialchars` en PHP, `escHtml()` en JS
    (incluidos renders de DataTables).
 6. **Fechas/números saneados con rangos** — opciones de entrevista futuras y
-   distintas, caducidad futura, prórroga posterior a la actual, ids casteados.
+   distintas, caducidad futura, prórroga posterior a la actual y con fecha de
+   ingreso registrada, ids casteados.
 
 Además: `conn.php` y `config_correo.php` gitignored (hay `.example` committeados).
 

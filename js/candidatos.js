@@ -443,7 +443,7 @@ $(function () {
         e.preventDefault();
         var data = $(this).serializeArray(); data.push({ name: 'accion', value: 'nueva_cita' });
         ajaxPost('acciones_proceso.php', data, function (err, res) {
-            if (res && res.success) { $('#modalCita').modal('hide'); mostrarToast(res.message, 'success'); cargar(); }
+            if (res && res.success) { $('#modalCita').modal('hide'); mostrarToast(res.message, res.aviso ? 'warning' : 'success'); cargar(); }
             else { mostrarToast((res && res.message) || 'Error.', 'error'); }
         });
     });
@@ -491,7 +491,7 @@ $(function () {
                 ? { accion: 'sin_fecha_candidato', id: id, fecha_candidato: r.value.fecha_candidato, notas: r.value.notas }
                 : { accion: 'confirmar_entrevista', id: id, opcion: r.value.opcion, notas: r.value.notas };
             ajaxPost('acciones_proceso.php', datos, function (err, res) {
-                if (res && res.success) { mostrarToast(res.message, 'success'); cargar(); }
+                if (res && res.success) { mostrarToast(res.message, res.aviso ? 'warning' : 'success'); cargar(); }
                 else { mostrarToast((res && res.message) || 'Error.', 'error'); }
             });
         });

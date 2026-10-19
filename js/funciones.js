@@ -123,8 +123,14 @@ function mostrarToast(mensaje, tipo) {
         icon: iconMap[tipo] || 'info',
         title: escHtml(mensaje),
         showConfirmButton: false,
-        timer: 3500,
+        // Dura según lo que hay que leer: «el correo NO se envió: <motivo>» no
+        // se alcanzaba a leer en 3.5 s. Con el mouse encima se detiene.
+        timer: Math.min(10000, Math.max(3500, String(mensaje || '').length * 60)),
         timerProgressBar: true,
+        didOpen: function (t) {
+            t.addEventListener('mouseenter', Swal.stopTimer);
+            t.addEventListener('mouseleave', Swal.resumeTimer);
+        },
         background: messColor('card-bg'),
         color: messColor('text')
     });
