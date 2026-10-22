@@ -11,7 +11,84 @@
  * La vista abierta se guarda por pestaña (sessionStorage) para que sobreviva a
  * la recarga del filtro; inicio.php la lee antes de pintar la tabla para que no
  * brinque. Las gráficas se construyen hasta que su vista se abre: un canvas
- * oculto mide 0 y Chart.js no se redimensiona solo al aparecer. */
+ * oculto mide 0 y Chart.js no se redimensiona solo al aparecer.
+ *
+ * Regla: todo cambio a una gráfica se replica en su par de la otra vista. Lo
+ * que comparten (hoy, los cortes de la de tiempos) vive aquí afuera para que
+ * dashboard-unicornio.js —que se carga después— use lo mismo. */
+
+// ---------------------------------------------------------------------------
+// Tiempo por etapa con los cortes de RRHH (Selección y Contratación, ver
+// inicio.php): cada fase va en su propio renglón, después de su última etapa.
+// ---------------------------------------------------------------------------
+
+// Renglones: las etapas en orden y cada fase insertada en su 'pos' (de atrás
+// hacia adelante para que las posiciones sigan valiendo).
+function sivacFilasTiempos(T) {
+    var filas = T.labels.map(function (l, i) { return { label: l, data: T.data[i] }; });
+    (T.fases || []).slice().reverse().forEach(function (f) { filas.splice(f.pos, 0, $.extend({ fase: true }, f)); });
+    return filas;
+}
+
+// Callback del eje: la etiqueta de una fase va en blanco (la pinta el plugin).
+function sivacEtiquetaTiempo(filas) {
+    return function (l, j) { return filas[j].fase ? '' : l; };
+}
+
+// Líneas del tooltip de un renglón; `dias` formatea el valor a la manera de
+// cada gráfica.
+function sivacTooltipTiempo(f, dias) {
+    if (!f.fase) return 'Promedio: ' + dias(f.data);
+    return ['Fase completa: ' + dias(f.data), f.detalle,
+        'Medido en ' + f.n + (f.n === 1 ? ' candidato' : ' candidatos')];
+}
+
+/* Plugin por gráfica: franja y etiqueta en negritas para los renglones de fase y
+ * la línea punteada del corte debajo. Va antes de las barras para quedar debajo
+ * de ellas. Opciones en `options.fases`: filas y colores { franja, corte, texto }. */
+var sivacFasesPlugin = {
+    beforeDatasetsDraw: function (chart) {
+        var op = chart.options.fases;
+        if (!op) return;
+        var ctx = chart.ctx, eje = chart.scales[chart.options.scales.yAxes[0].id];
+        var els = chart.getDatasetMeta(0).data, alto = (eje.bottom - eje.top) / els.length;
+        // Mismo x que Chart.js usa para las etiquetas de un eje a la izquierda.
+        var gl = eje.options.gridLines;
+        var xEtq = eje.right - (gl.drawTicks ? gl.tickMarkLength : 0) - eje.options.ticks.padding;
+        var familia = Chart.defaults.global.defaultFontFamily;
+        els.forEach(function (el, j) {
+            if (!op.filas[j].fase) return;
+            var y = el._view.y;
+            ctx.save();
+            ctx.fillStyle = op.colores.franja;
+            ctx.fillRect(0, y - alto / 2, chart.width, alto);
+
+            ctx.font = Chart.helpers.fontString(12, 'bold', familia);
+            ctx.fillStyle = op.colores.texto;
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(op.filas[j].label, xEtq, y);
+
+            // El corte: separa la fase de la etapa que sigue (si sigue alguna).
+            if (j < els.length - 1) {
+                var yc = Math.round(y + alto / 2) + 0.5;
+                ctx.strokeStyle = op.colores.corte;
+                ctx.lineWidth = 1;
+                ctx.setLineDash([4, 3]);
+                ctx.beginPath();
+                ctx.moveTo(0, yc);
+                ctx.lineTo(chart.width, yc);
+                ctx.stroke();
+            }
+            ctx.restore();
+        });
+    }
+};
+
+function sivacColoresFases(grid, corte, texto) {
+    return { franja: Chart.helpers.color(grid).alpha(0.55).rgbString(), corte: corte, texto: texto };
+}
+
 $(function () {
     var D = window.SIVAC_CHART || { embudo: { labels: [], data: [] }, vacantes: { labels: [], cand: [], entr: [] } };
     D.rechazos = D.rechazos || { labels: [], data: [] };
@@ -154,20 +231,23 @@ $(function () {
             });
         }
 
-        // Tiempo promedio por etapa (días): barras horizontales, un solo color.
-        var $tm = $('#chartTiempos');
-        if (!D.tiempos.labels.length) { $tm.hide(); $('#tiempoVacio').show(); }
+        // Tiempo promedio por etapa (días): barras horizontales, un color para
+        // las etapas y otro para las fases (los cortes, con su renglón resaltado).
+        var $tm = $('#chartTiempos'), $tmLienzo = $('#lienzoTiemposClasica');
+        if (!D.tiempos.labels.length) { $tmLienzo.hide(); $('#tiempoVacio').show(); $('#tiempoCortes').hide(); }
         else {
-            $tm.show(); $('#tiempoVacio').hide();
+            var filasT = sivacFilasTiempos(D.tiempos);
+            $tmLienzo.show(); $('#tiempoVacio').hide();
+            $('#tiempoCortes').toggle(filasT.length > D.tiempos.labels.length);
             if (charts.tiempo) charts.tiempo.destroy();
             charts.tiempo = new Chart($tm[0].getContext('2d'), {
                 type: 'horizontalBar',
                 data: {
-                    labels: D.tiempos.labels,
+                    labels: filasT.map(function (f) { return f.label; }),
                     datasets: [{
                         label: 'Días promedio',
-                        data: D.tiempos.data,
-                        backgroundColor: t.c2,
+                        data: filasT.map(function (f) { return f.data; }),
+                        backgroundColor: filasT.map(function (f) { return f.fase ? t.c1 : t.c2; }),
                         borderWidth: 0,
                         barPercentage: 0.7
                     }]
@@ -177,13 +257,15 @@ $(function () {
                     legend: { display: false },
                     tooltips: {
                         backgroundColor: messColor('card-bg'), titleFontColor: t.text, bodyFontColor: t.text, borderColor: t.grid, borderWidth: 1,
-                        callbacks: { label: function (item) { return item.xLabel + ' días'; } }
+                        callbacks: { label: function (item) { return sivacTooltipTiempo(filasT[item.index], function (v) { return v + ' días'; }); } }
                     },
                     scales: {
                         xAxes: [{ ticks: { beginAtZero: true, fontColor: t.text }, gridLines: { color: t.grid, zeroLineColor: t.grid } }],
-                        yAxes: [{ ticks: { fontColor: t.text }, gridLines: { display: false } }]
-                    }
-                }
+                        yAxes: [{ ticks: { fontColor: t.text, callback: sivacEtiquetaTiempo(filasT) }, gridLines: { display: false } }]
+                    },
+                    fases: { filas: filasT, colores: sivacColoresFases(t.grid, t.text, messColor('text')) }
+                },
+                plugins: [sivacFasesPlugin]
             });
         }
     }
