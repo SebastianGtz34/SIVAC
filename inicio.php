@@ -200,9 +200,18 @@ foreach (SIVAC_ORDEN_PIPELINE as $est) {
 // (portable, sin window functions): para cada candidato, el tiempo en una etapa
 // es la diferencia entre la transición que sale de ella y la que entró. La fila
 // sintética 'aspirante → aspirante' es sólo la línea base (no se mide como etapa).
+//
+// Además, las dos fases con las que RRHH corta el proceso (retro 2026-10-22; las
+// pintan las dos gráficas de tiempos, la de siempre y la del unicornio):
+//   - Selección: de la captura a que sale de 'entrevistado' hacia la propuesta
+//     (o, en prácticas, directo a documentación).
+//   - Contratación: de ahí a que llega a documentación; sólo la rama con propuesta.
+// Cada fase se mide por candidato, de punta a punta, entre los que cruzaron su
+// corte: por eso no es la suma de los promedios por etapa (ésos también promedian
+// a quienes se descartaron en el camino).
 // ---------------------------------------------------------------------------
 $stmt = $conn->prepare(
-    "SELECT h.id_candidato, h.estatus_anterior, h.fecha_creacion
+    "SELECT h.id_candidato, h.estatus_anterior, h.estatus_nuevo, h.fecha_creacion
        FROM candidatos_historial h
        INNER JOIN candidatos c ON c.id = h.id_candidato
        INNER JOIN vacantes v ON v.id = c.id_vacante
@@ -213,20 +222,57 @@ if ($tipos) $stmt->bind_param($tipos, ...$params);
 $stmt->execute();
 $resH = $stmt->get_result();
 $acHoras = []; $acN = []; $prevCand = null; $prevFecha = null;
+$fase = ['seleccion' => ['h' => 0, 'n' => 0], 'contratacion' => ['h' => 0, 'n' => 0]];
+$inicio = null; $finSeleccion = null;
 while ($r = $resH->fetch_assoc()) {
-    if ($r['id_candidato'] !== $prevCand) { $prevCand = $r['id_candidato']; $prevFecha = $r['fecha_creacion']; continue; }
-    $et = $r['estatus_anterior'];
+    if ($r['id_candidato'] !== $prevCand) {
+        $prevCand = $r['id_candidato']; $prevFecha = $inicio = $r['fecha_creacion']; $finSeleccion = null;
+        continue;
+    }
+    $et = $r['estatus_anterior']; $nuevo = $r['estatus_nuevo'];
+    // Una fila sin cambio de estatus («Ninguna le queda») es constancia, no una
+    // salida: la estancia sigue corriendo hasta la transición real. Contarla
+    // partía una sola estancia en dos y bajaba el promedio de la etapa.
+    if ($et === $nuevo) continue;
     $horas = (strtotime($r['fecha_creacion']) - strtotime($prevFecha)) / 3600;
     if ($horas >= 0) { $acHoras[$et] = ($acHoras[$et] ?? 0) + $horas; $acN[$et] = ($acN[$et] ?? 0) + 1; }
     $prevFecha = $r['fecha_creacion'];
+
+    if ($et === 'entrevistado' && $nuevo !== 'descartado') {
+        $finSeleccion = $r['fecha_creacion'];
+        $fase['seleccion']['h'] += (strtotime($finSeleccion) - strtotime($inicio)) / 3600;
+        $fase['seleccion']['n']++;
+    } elseif ($et === 'propuesta_aceptada' && $nuevo === 'documentacion' && $finSeleccion !== null) {
+        $fase['contratacion']['h'] += (strtotime($r['fecha_creacion']) - strtotime($finSeleccion)) / 3600;
+        $fase['contratacion']['n']++;
+    }
 }
 $stmt->close();
-$tiempoLabels = []; $tiempoData = [];
+$tiempoLabels = []; $tiempoData = []; $tiempoEstatus = [];
 foreach (SIVAC_ORDEN_PIPELINE as $est) {
     if (!empty($acN[$est])) {
-        $tiempoLabels[] = sivacEstatusLabel($est);
-        $tiempoData[]   = round(($acHoras[$est] / $acN[$est]) / 24, 1);
+        $tiempoLabels[]  = sivacEstatusLabel($est);
+        $tiempoData[]    = round(($acHoras[$est] / $acN[$est]) / 24, 1);
+        $tiempoEstatus[] = $est;
     }
+}
+// Cada fase va en su propio renglón, justo después de su última etapa: 'pos' es
+// cuántas etapas de la gráfica le quedan arriba.
+$tiempoFases = [];
+$defFases = [
+    'seleccion'    => ['Selección',    'entrevistado',       'De la captura a la propuesta (en prácticas, a documentación)'],
+    'contratacion' => ['Contratación', 'propuesta_aceptada', 'De la propuesta a documentación'],
+];
+foreach ($defFases as $k => $def) {
+    if (!$fase[$k]['n']) continue;
+    $ultima = $posEtapa[$def[1]];
+    $tiempoFases[] = [
+        'label'   => $def[0],
+        'data'    => round(($fase[$k]['h'] / $fase[$k]['n']) / 24, 1),
+        'n'       => $fase[$k]['n'],
+        'detalle' => $def[2],
+        'pos'     => count(array_filter($tiempoEstatus, function ($e) use ($posEtapa, $ultima) { return $posEtapa[$e] <= $ultima; })),
+    ];
 }
 
 // ---------------------------------------------------------------------------
@@ -369,6 +415,7 @@ $chartData = [
     'tiempos' => [
         'labels' => $tiempoLabels,
         'data'   => $tiempoData,
+        'fases'  => $tiempoFases,
     ],
 ];
 
@@ -499,8 +546,16 @@ include 'encabezado.php';
         <div class="card h-100">
             <div class="card-header">Tiempo promedio por etapa (días)</div>
             <div class="card-body">
-                <canvas id="chartTiempos" height="260"></canvas>
+                <!-- Contenedor de alto fijo: con la nota de abajo visible, un canvas
+                     responsivo suelto en el card-body crece sin fin. -->
+                <div class="grafica-lienzo" id="lienzoTiemposClasica"><canvas id="chartTiempos"></canvas></div>
                 <p class="text-muted small mt-2 mb-0" id="tiempoVacio" style="display:none">Aún no hay suficientes transiciones para medir tiempos.</p>
+                <!-- Mismo texto que #notaTiemposCortes en la del unicornio. -->
+                <p class="text-muted small mt-2 mb-0" id="tiempoCortes" style="display:none">
+                    Los renglones en negritas son los cortes: Selección va de la captura a la propuesta
+                    y Contratación, de la propuesta a documentación. Cuentan sólo a quienes cruzaron el corte,
+                    por eso no son la suma exacta de las etapas de arriba.
+                </p>
             </div>
         </div>
     </div>
@@ -556,7 +611,12 @@ include 'encabezado.php';
                     <p class="unicornio-globo" id="dichoTiempos"></p>
                 </div>
                 <div class="grafica-lienzo" id="lienzoTiempos"><canvas id="chartTiemposUni"></canvas></div>
-                <p class="grafica-nota" id="notaTiempos">Entre más largo el cuerno, más días. El dorado es la etapa más lenta.</p>
+                <p class="grafica-nota" id="notaTiempos">
+                    Entre más largo el cuerno, más días. El dorado es la etapa más lenta.
+                    <span id="notaTiemposCortes">Los renglones en negritas son los cortes: Selección va de la captura a la propuesta
+                    y Contratación, de la propuesta a documentación. Cuentan sólo a quienes cruzaron el corte,
+                    por eso no son la suma exacta de las etapas de arriba.</span>
+                </p>
             </div>
         </div>
     </div>

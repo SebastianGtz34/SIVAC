@@ -241,7 +241,8 @@ $(function () {
     /* Plugin por gráfica (no global): las barras de Chart.js quedan transparentes
      * y siguen dando el tamaño, la animación y el tooltip; encima se pinta un
      * cuerno por barra con su valor en la punta. Opciones en `options.cuernos`:
-     * colores, tono(j) → 'oro' | 'plata' y formato(valor). */
+     * colores, tono(j) → 'oro' | 'plata', fuerte(j) → valor en color de texto
+     * aunque el cuerno sea plata, y formato(valor). */
     var cuernosPlugin = {
         afterDatasetsDraw: function (chart) {
             var op = chart.options.cuernos;
@@ -263,7 +264,7 @@ $(function () {
                     // El valor, escrito en la punta: no hace falta leer ningún eje.
                     ctx.save();
                     ctx.font = Chart.helpers.fontString(12, 'bold', familia);
-                    ctx.fillStyle = tono === 'oro' ? op.colores.texto : op.colores.textoTenue;
+                    ctx.fillStyle = tono === 'oro' || (op.fuerte && op.fuerte(j)) ? op.colores.texto : op.colores.textoTenue;
                     ctx.textAlign = horiz ? 'left' : 'center';
                     ctx.textBaseline = horiz ? 'middle' : 'bottom';
                     ctx.fillText(op.formato ? op.formato(valor) : num(valor), horiz ? v.x + 6 : v.x, horiz ? v.y : v.y - 4);
@@ -330,6 +331,9 @@ $(function () {
 
     // ---------------------------------------------------------------------
     // ¿Cuántos días tarda cada etapa? — cuernos acostados; el dorado es la más lenta.
+    // Las fases (los cortes de RRHH: Selección y Contratación) van intercaladas
+    // igual que en la gráfica de siempre (lo común está en dashboard.js); aquí su
+    // cuerno es la fase completa, de punta a punta.
     // ---------------------------------------------------------------------
     function construirTiempos(t) {
         var T = D.tiempos, n = T.labels.length;
@@ -340,20 +344,33 @@ $(function () {
             $('#dichoTiempos').text('Aún no hay suficientes movimientos para medir tiempos.');
             return;
         }
-        // Alto según el número de etapas, para que cada cuerno tenga su renglón.
-        $('#lienzoTiempos, #notaTiempos').show();
-        $('#lienzoTiempos').css('height', Math.max(180, n * 38 + 16) + 'px');
 
-        var iMax = indiceMayor(T.data);
-        $('#dichoTiempos').html('La etapa más lenta es «' + escHtml(T.labels[iMax]) + '»: tarda <strong>'
-            + dias(T.data[iMax]) + '</strong> en promedio.');
+        var filas = sivacFilasTiempos(T), fases = T.fases || [];
+        var lenta = filas.filter(function (f) { return !f.fase; })[indiceMayor(T.data)];
+
+        // Alto según el número de renglones, para que cada cuerno tenga el suyo.
+        $('#lienzoTiempos, #notaTiempos').show();
+        $('#notaTiemposCortes').toggle(fases.length > 0);
+        $('#lienzoTiempos').css('height', Math.max(180, filas.length * 38 + 16) + 'px');
+
+        var dicho = 'La etapa más lenta es «' + escHtml(lenta.label) + '»: tarda <strong>'
+            + dias(lenta.data) + '</strong> en promedio.';
+        if (fases.length) {
+            dicho += ' De punta a punta, ' + enLista(fases.map(function (f, k) {
+                return 'la ' + escHtml(f.label.toLowerCase()) + (k ? ', ' : ' toma ') + '<strong>' + dias(f.data) + '</strong>';
+            })) + '.';
+        }
+        $('#dichoTiempos').html(dicho);
+
+        var eje = ejeCategorias(t);
+        eje.ticks.callback = sivacEtiquetaTiempo(filas);
 
         charts.tiempo = new Chart(document.getElementById('chartTiemposUni').getContext('2d'), {
             type: 'horizontalBar',
             data: {
-                labels: T.labels.map(function (l) { return renglones(l, 18, 2); }),
+                labels: filas.map(function (f) { return renglones(f.label, 18, 2); }),
                 datasets: [{
-                    label: 'Días promedio', data: T.data,
+                    label: 'Días promedio', data: filas.map(function (f) { return f.data; }),
                     backgroundColor: TRANSPARENTE, hoverBackgroundColor: TRANSPARENTE, borderWidth: 0,
                     categoryPercentage: 0.8, barPercentage: 0.7, maxBarThickness: 26
                 }]
@@ -363,20 +380,22 @@ $(function () {
                 legend: { display: false },
                 layout: { padding: { right: 72 } },
                 tooltips: tooltips(t, {
-                    title: function (it) { return T.labels[it[0].index]; },
-                    label: function (it) { return 'Promedio: ' + dias(T.data[it.index]); }
+                    title: function (it) { return filas[it[0].index].label; },
+                    label: function (it) { return sivacTooltipTiempo(filas[it.index], dias); }
                 }),
                 scales: {
                     xAxes: [{ display: false, ticks: { beginAtZero: true } }],
-                    yAxes: [ejeCategorias(t)]
+                    yAxes: [eje]
                 },
                 cuernos: {
                     colores: coloresCuerno(t),
-                    tono: function (j) { return j === iMax ? 'oro' : 'plata'; },
+                    tono: function (j) { return filas[j] === lenta ? 'oro' : 'plata'; },
+                    fuerte: function (j) { return !!filas[j].fase; },
                     formato: diasCorto
-                }
+                },
+                fases: { filas: filas, colores: sivacColoresFases(t.grid, t.muted, t.text) }
             },
-            plugins: [cuernosPlugin]
+            plugins: [sivacFasesPlugin, cuernosPlugin]
         });
     }
 
