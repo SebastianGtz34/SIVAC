@@ -45,7 +45,7 @@ include 'encabezado.php';
         <div class="table-responsive">
             <table class="table table-hover w-100" id="tablaCandidatos">
                 <thead><tr>
-                    <th>Nombre</th><th>Vacante</th><th>Contacto</th>
+                    <th>Nombre</th><th>Vacante</th><th>Área</th><th>Contacto</th>
                     <th class="text-center">Estatus</th><th class="text-center">CV</th><th></th>
                 </tr></thead>
                 <tbody></tbody>

@@ -129,7 +129,7 @@ switch ($accion) {
         // que toca (confirmar / agendar / resultado) sin una pantalla aparte.
         $idVacante = (int)($_POST['id_vacante'] ?? $_GET['id_vacante'] ?? 0);
         $sql = "SELECT c.id, TRIM(CONCAT_WS(' ', c.nombre, NULLIF(c.apellidos,''))) AS nombre, c.correo, c.telefono, c.estatus, c.cv_archivo,
-                       c.fecha_creacion, v.folio, v.puesto, v.id AS id_vacante,
+                       c.fecha_creacion, v.folio, v.puesto, v.id AS id_vacante, v.departamento,
                        (SELECT ci.id FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' AND ci.estatus = 'pendiente' ORDER BY ci.id DESC LIMIT 1) AS cita_jefe_pendiente,
                        (SELECT DATE_FORMAT(ci.opcion1, '%d/%m/%Y %H:%i') FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' AND ci.estatus = 'pendiente' ORDER BY ci.id DESC LIMIT 1) AS cita_jefe_op1,
                        (SELECT DATE_FORMAT(ci.opcion2, '%d/%m/%Y %H:%i') FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' AND ci.estatus = 'pendiente' ORDER BY ci.id DESC LIMIT 1) AS cita_jefe_op2,
@@ -145,8 +145,13 @@ switch ($accion) {
         if ($tipos) $stmt->bind_param($tipos, ...$params);
         $stmt->execute();
         $res = $stmt->get_result();
+        // Área = el departamento de la vacante, resuelto por id contra el catálogo.
+        $deptos = catalogoDepartamentos($conn);
         $data = [];
-        while ($r = $res->fetch_assoc()) $data[] = $r;
+        while ($r = $res->fetch_assoc()) {
+            $r['area'] = $deptos[(int)$r['departamento']] ?? '';
+            $data[] = $r;
+        }
         $stmt->close();
         responder(true, '', ['data' => $data]);
     }
