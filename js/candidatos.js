@@ -4,7 +4,7 @@ $(function () {
     var tabla = dtAutoAjustar($('#tablaCandidatos').DataTable({
         language: dtIdioma(),
         order: [[0, 'asc']],
-        columnDefs: [{ orderable: false, targets: [4, 5] }]
+        columnDefs: [{ orderable: false, targets: [5, 6] }]
     }));
     var vacantesCache = [];
 
@@ -132,6 +132,7 @@ $(function () {
                 tabla.row.add([
                     escHtml(c.nombre),
                     escHtml(c.folio),
+                    c.area ? escHtml(c.area) : '<span class="text-muted">—</span>',
                     '<div>' + escHtml(c.correo) + '</div><div class="text-muted small">' + escHtml(c.telefono || '') + '</div>',
                     badgeestatusCandidato(c.estatus, estatusS[c.estatus] || c.estatus) + htmlEntrevista,
                     cv,
