@@ -5,8 +5,8 @@ $(function () {
     var tabla = dtAutoAjustar($('#tablaVacantes').DataTable({
         language: dtIdioma(),
         order: [[0, 'desc']],
-        // 7 = "Registrada" (fecha formateada, no se ordena como texto), 8 = acciones.
-        columnDefs: [{ orderable: false, targets: [7, 8] }]
+        // 8 = "Registrada" (fecha formateada, no se ordena como texto), 9 = acciones.
+        columnDefs: [{ orderable: false, targets: [8, 9] }]
     }));
 
     // Muestra/oculta duración + motivo según el tipo. Alterna `required` junto al
@@ -84,6 +84,7 @@ $(function () {
                 tabla.row.add([
                     folio,
                     puesto,
+                    v.area ? escHtml(v.area) : '<span class="text-muted">—</span>',
                     escHtml(v.solicitante_nombre),
                     escHtml(v.region_nombre || '—'),
                     v.total_candidatos,

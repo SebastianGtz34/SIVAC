@@ -276,11 +276,11 @@ foreach ($defFases as $k => $def) {
 }
 
 // ---------------------------------------------------------------------------
-// Detalle por vacante (respaldo): folio, puesto, días abierta y candidatos.
+// Detalle por vacante (respaldo): folio, puesto, área, días abierta y candidatos.
 // Días abierta = fecha_cierre − fecha_creacion (o los transcurridos si sigue abierta).
 // ---------------------------------------------------------------------------
 $stmt = $conn->prepare(
-    "SELECT v.folio, v.puesto, v.estatus, v.fecha_cierre,
+    "SELECT v.folio, v.puesto, v.departamento, v.estatus, v.fecha_cierre,
             DATEDIFF(COALESCE(v.fecha_cierre, NOW()), v.fecha_creacion) AS dias,
             (SELECT COUNT(*) FROM candidatos c WHERE c.id_vacante = v.id) AS cand,
             (SELECT COUNT(*) FROM candidatos c WHERE c.id_vacante = v.id AND c.estatus = 'contratado') AS contr
@@ -650,17 +650,18 @@ include 'encabezado.php';
                 <div class="table-responsive">
                     <table class="table table-sm table-hover mb-0">
                         <thead><tr>
-                            <th>Folio</th><th>Puesto</th><th class="text-center">Estatus</th>
+                            <th>Folio</th><th>Puesto</th><th>Área</th><th class="text-center">Estatus</th>
                             <th class="text-center">Días abierta</th><th class="text-center">Candidatos</th>
                             <th class="text-center">Contratados</th>
                         </tr></thead>
                         <tbody>
                         <?php if (!$detalleVac): ?>
-                            <tr><td colspan="6" class="text-muted small">Sin vacantes en tu alcance.</td></tr>
-                        <?php else: foreach ($detalleVac as $d): ?>
+                            <tr><td colspan="7" class="text-muted small">Sin vacantes en tu alcance.</td></tr>
+                        <?php else: $deptos = catalogoDepartamentos($conn); foreach ($detalleVac as $d): $area = $deptos[(int)$d['departamento']] ?? ''; ?>
                             <tr>
                                 <td><?= htmlspecialchars($d['folio']) ?></td>
                                 <td><?= htmlspecialchars($d['puesto']) ?></td>
+                                <td><?= $area !== '' ? htmlspecialchars($area) : '<span class="text-muted">—</span>' ?></td>
                                 <td class="text-center"><?= htmlspecialchars(ucfirst(str_replace('_', ' ', $d['estatus']))) ?></td>
                                 <td class="text-center"><?= (int)$d['dias'] ?><?= $d['fecha_cierre'] ? '' : ' <span class="text-muted small">(en curso)</span>' ?></td>
                                 <td class="text-center"><?= (int)$d['cand'] ?></td>
