@@ -2,7 +2,7 @@
 $(function () {
     var estatusS = window.SIVAC_estatusS || {};
     var tabla = dtAutoAjustar($('#tablaCierre').DataTable({
-        language: dtIdioma(), order: [], columnDefs: [{ orderable: false, targets: [4] }]
+        language: dtIdioma(), order: [], columnDefs: [{ orderable: false, targets: [5] }]
     }));
 
     function cargar() {
@@ -45,6 +45,7 @@ $(function () {
                 tabla.row.add([
                     escHtml(c.nombre) + '<div class="text-muted small">' + escHtml(c.correo) + '</div>',
                     escHtml(c.folio) + '<div class="text-muted small">' + escHtml(c.puesto) + '</div>',
+                    c.area ? escHtml(c.area) : '<span class="text-muted">—</span>',
                     badgeestatusCandidato(c.estatus, estatusS[c.estatus] || c.estatus),
                     detalle, acc
                 ]);

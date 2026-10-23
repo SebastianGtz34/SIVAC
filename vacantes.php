@@ -31,7 +31,7 @@ include 'encabezado.php';
             <table class="table table-hover w-100" id="tablaVacantes">
                 <thead>
                     <tr>
-                        <th>Folio</th><th>Puesto</th><th>Solicitante</th><th>Región</th>
+                        <th>Folio</th><th>Puesto</th><th>Área</th><th>Solicitante</th><th>Región</th>
                         <th class="text-center">Candidatos</th><th class="text-center">Entrevistados</th>
                         <th class="text-center">Estatus</th><th>Registrada</th><th></th>
                     </tr>

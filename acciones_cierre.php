@@ -203,7 +203,7 @@ switch ($accion) {
 
     case 'listar': {
         sivacExpirarPropuestas($conn);
-        $sql = "SELECT c.id, TRIM(CONCAT_WS(' ', c.nombre, NULLIF(c.apellidos,''))) AS nombre, c.correo, c.estatus, v.folio, v.puesto, v.tipo AS tipo_vacante,
+        $sql = "SELECT c.id, TRIM(CONCAT_WS(' ', c.nombre, NULLIF(c.apellidos,''))) AS nombre, c.correo, c.estatus, v.folio, v.puesto, v.tipo AS tipo_vacante, v.departamento,
                        (SELECT p.fecha_caducidad FROM propuestas p WHERE p.id_candidato = c.id AND p.estatus = 'enviada' ORDER BY p.id DESC LIMIT 1) AS caducidad,
                        ct.fecha_ingreso, ct.fecha_limite_documentos, ct.prorrogas, ct.reglamento_enviado, ct.estatus AS contr_estatus
                 FROM candidatos c
@@ -212,11 +212,13 @@ switch ($accion) {
                 WHERE c.estatus IN ('entrevistado','propuesta_enviada','propuesta_expirada','propuesta_aceptada','documentacion','contratado')
                 ORDER BY FIELD(c.estatus,'propuesta_enviada','entrevistado','propuesta_expirada','propuesta_aceptada','documentacion','contratado'), c.id DESC";
         $res = $conn->query($sql);
+        $deptos = catalogoDepartamentos($conn);
         $data = [];
         while ($r = $res->fetch_assoc()) {
             // Prácticas no lleva propuesta económica: la UI debe ofrecerle
             // "pasar a documentación" en vez del formulario de propuesta.
             $r['requiere_propuesta'] = sivacRequierePropuesta($r['tipo_vacante']) ? 1 : 0;
+            $r['area'] = $deptos[(int)$r['departamento']] ?? '';
             $data[] = $r;
         }
         responder(true, '', ['data' => $data]);

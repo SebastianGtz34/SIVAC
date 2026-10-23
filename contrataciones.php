@@ -18,7 +18,7 @@ include 'encabezado.php';
         <div class="table-responsive">
             <table class="table table-hover w-100" id="tablaCierre">
                 <thead><tr>
-                    <th>Candidato</th><th>Vacante</th><th class="text-center">Estatus</th>
+                    <th>Candidato</th><th>Vacante</th><th>Área</th><th class="text-center">Estatus</th>
                     <th>Detalle</th><th></th>
                 </tr></thead>
                 <tbody></tbody>

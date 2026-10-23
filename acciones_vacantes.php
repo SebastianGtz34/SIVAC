@@ -84,11 +84,13 @@ switch ($accion) {
         $stmt->execute();
         $res = $stmt->get_result();
         $regiones = catalogoRegiones($conn);
+        $deptos   = catalogoDepartamentos($conn);
         $data = [];
         while ($r = $res->fetch_assoc()) {
             $sol = obtenerDatosEmpleado($conn, (int)$r['no_empleado_solicitante']);
             $r['solicitante_nombre'] = $sol['nombre'] ?? ('#' . $r['no_empleado_solicitante']);
             $r['region_nombre'] = $regiones[(int)$r['region']] ?? '';
+            $r['area']          = $deptos[(int)$r['departamento']] ?? '';
             $r['tipo_label']    = sivacTipoVacanteLabel($r['tipo']);
             $data[] = $r;
         }
