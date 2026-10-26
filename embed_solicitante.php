@@ -781,6 +781,7 @@ $(function () {
     var puedeSolicitar = <?= $puedeSolicitar ? 'true' : 'false' ?>;
     var NOMBRE_SESION = <?= json_encode($nombreSesion, JSON_UNESCAPED_UNICODE) ?>;
     var candidatosData = [];   // caché de mis_candidatos (se filtra por vacante)
+    var fechaMinima = '', fechaMinimaTxt = '';  // primera fecha de entrevista permitida (viene con mis_candidatos)
     var vacSel = 0;            // vacante seleccionada (master-detalle)
     var hayVacantes = false;   // para que el bloque de abajo no pida "selecciona una"
 
@@ -873,6 +874,8 @@ $(function () {
     function cargarCandidatos() {
         ajaxPost('acciones_solicitante.php', { accion: 'mis_candidatos' }, function (err, res) {
             candidatosData = (!err && res && res.success && res.data) ? res.data : [];
+            fechaMinima = (res && res.fecha_minima) || '';
+            fechaMinimaTxt = (res && res.fecha_minima_txt) || '';
             renderCandidatos();
         });
     }
@@ -933,6 +936,12 @@ $(function () {
                         + (c.cita_fecha_candidato ? '<br>Pide: <strong>' + formatearFecha(c.cita_fecha_candidato) + '</strong>' : '')
                         + '<br>Propón nuevas fechas de entrevista.</div>';
                 }
+                // Cuántas veces se movió: el jefe ve lo mismo que RRHH en la ficha.
+                var nReag = parseInt(c.citas_reagendadas, 10) || 0;
+                if (nReag > 0) {
+                    miEnt += '<div class="small text-muted"><i class="fas fa-history mr-1"></i>Reagendada '
+                        + nReag + (nReag === 1 ? ' vez' : ' veces') + '</div>';
+                }
 
                 // Motivo del descarte (sólo en tarjetas descartadas).
                 var motivo = (esDescartado && c.motivo_descarte)
@@ -977,6 +986,29 @@ $(function () {
             });
     }
 
+    // Reglas de las fechas del jefe (retro 2026-10-26): días distintos y al menos
+    // un día hábil completo de aviso. La fuente de verdad es includes/citas.php;
+    // aquí se repiten para que el diálogo no se cierre con el error y el jefe no
+    // pierda lo que capturó.
+    function textoReglaFechas(nuevas) {
+        return '<p class="small text-muted mb-2">Ofrece dos opciones ' + (nuevas ? 'nuevas ' : '')
+            + 'de fecha y hora para <strong>tu</strong> entrevista, <strong>en días distintos</strong>'
+            + (fechaMinimaTxt ? ', a partir del <strong>' + escHtml(fechaMinimaTxt) + '</strong>' : '')
+            + '. RRHH necesita al menos un día hábil completo para localizar al candidato.</p>';
+    }
+    // '' si van bien. «pedida» = la fecha que pidió el candidato: ésa no se
+    // bloquea por aviso, ya se habló con él. Los valores de datetime-local
+    // ('AAAA-MM-DDTHH:MM') se comparan como texto igual que como fecha.
+    function validarFechasJefe(o1, o2, pedida) {
+        if (!o1 || !o2) return 'Indica las dos fechas.';
+        if (o1.substring(0, 10) === o2.substring(0, 10)) return 'Las dos opciones deben caer en días distintos.';
+        var p = pedida ? pedida.replace(' ', 'T').substring(0, 16) : '';
+        if (fechaMinima && ((o1 < fechaMinima && o1 !== p) || (o2 < fechaMinima && o2 !== p))) {
+            return 'La entrevista debe ser a partir del ' + fechaMinimaTxt + '.';
+        }
+        return '';
+    }
+
     // Reagendar: mismo diálogo de dos fechas que al aprobar. Si la entrevista ya
     // estaba confirmada, el backend la cancela y devuelve al candidato a «pendiente
     // de que elija fecha», así que se avisa aquí para que no sorprenda.
@@ -992,23 +1024,33 @@ $(function () {
             title: yaConfirmada ? 'Reagendar la entrevista' : (sinFecha ? 'Proponer nuevas fechas' : 'Cambiar las fechas'),
             didOpen: function () {
                 if (pedida) document.getElementById('sw_op1').value = pedida.replace(' ', 'T').substring(0, 16);
+                // La fecha pedida puede caer antes de la mínima: a esa opción no se le pone tope.
+                if (fechaMinima) {
+                    if (!pedida) document.getElementById('sw_op1').min = fechaMinima;
+                    document.getElementById('sw_op2').min = fechaMinima;
+                }
             },
-            html: '<p class="small text-muted mb-2">Ofrece dos opciones nuevas de fecha y hora para <strong>tu</strong> entrevista. '
-                + 'Pueden ser el <strong>mismo día a distinta hora</strong>; solo tienen que ser distintas y futuras.</p>'
+            html: textoReglaFechas(true)
                 + (yaConfirmada
                     ? '<p class="small text-warning mb-2">La fecha ya confirmada se cancelará y RRHH volverá a cuadrarla con el candidato.</p>'
                     : '')
                 + '<input type="datetime-local" id="sw_op1" class="swal2-input">'
                 + '<input type="datetime-local" id="sw_op2" class="swal2-input">'
-                + '<textarea id="sw_notas" class="swal2-textarea" placeholder="Motivo del cambio (opcional)."></textarea>',
+                // Tras un «ninguna le queda» el motivo es obvio; en cualquier otro
+                // cambio es obligatorio y queda en el historial de la ficha.
+                + '<textarea id="sw_notas" class="swal2-textarea" placeholder="'
+                + (sinFecha ? 'Comentarios para RRHH (opcional).' : 'Motivo del cambio (obligatorio).') + '"></textarea>',
             showCancelButton: true, confirmButtonColor: messColor('accent'),
             background: messColor('card-bg'), color: messColor('text'),
             confirmButtonText: 'Guardar', cancelButtonText: 'Cancelar',
             preConfirm: function () {
                 var o1 = document.getElementById('sw_op1').value;
                 var o2 = document.getElementById('sw_op2').value;
-                if (!o1 || !o2) { Swal.showValidationMessage('Indica las dos fechas.'); return false; }
-                return { opcion1: o1, opcion2: o2, notas: document.getElementById('sw_notas').value };
+                var notas = document.getElementById('sw_notas').value;
+                var error = validarFechasJefe(o1, o2, pedida);
+                if (!error && !sinFecha && !notas.trim()) error = 'Indica el motivo del cambio de fechas.';
+                if (error) { Swal.showValidationMessage(error); return false; }
+                return { opcion1: o1, opcion2: o2, notas: notas };
             }
         }).then(function (r) {
             if (!r.isConfirmed) return;
@@ -1026,8 +1068,13 @@ $(function () {
         var id = $(this).data('id');
         Swal.fire({
             title: 'Aprobar y proponer entrevista',
-            html: '<p class="small text-muted mb-2">Ofrece dos opciones de fecha y hora para <strong>tu</strong> entrevista. '
-                + 'Pueden ser el <strong>mismo día a distinta hora</strong>; solo tienen que ser distintas y futuras.</p>'
+            didOpen: function () {
+                if (fechaMinima) {
+                    document.getElementById('sw_op1').min = fechaMinima;
+                    document.getElementById('sw_op2').min = fechaMinima;
+                }
+            },
+            html: textoReglaFechas(false)
                 + '<input type="datetime-local" id="sw_op1" class="swal2-input">'
                 + '<input type="datetime-local" id="sw_op2" class="swal2-input">'
                 + '<textarea id="sw_notas" class="swal2-textarea" placeholder="Comentarios para RRHH (opcional)."></textarea>',
@@ -1037,7 +1084,8 @@ $(function () {
             preConfirm: function () {
                 var o1 = document.getElementById('sw_op1').value;
                 var o2 = document.getElementById('sw_op2').value;
-                if (!o1 || !o2) { Swal.showValidationMessage('Indica las dos fechas.'); return false; }
+                var error = validarFechasJefe(o1, o2, '');
+                if (error) { Swal.showValidationMessage(error); return false; }
                 return { opcion1: o1, opcion2: o2, notas: document.getElementById('sw_notas').value };
             }
         }).then(function (r) {

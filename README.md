@@ -231,13 +231,25 @@ del jefe la propone él mismo al aprobar el CV (2 opciones de horario en
 del sistema y RRHH confirma cuál. Al agendar se pueden dejar comentarios para el
 candidato en `citas.notas`.
 
+**Fechas del jefe** (retro 2026-10-26, `includes/citas.php`): toda propuesta del
+jefe —aprobar el CV, cambiar fechas, reagendar— debe caer **a partir del 2.º día
+hábil** (al menos un día hábil completo de aviso para que RRHH localice al
+candidato: viernes → martes) y con las dos opciones **en días distintos**.
+Reagendar exige **motivo**, salvo tras «Ninguna le queda»; ahí además la fecha que
+pidió el candidato pasa aunque no cumpla el aviso. Hábil = lunes a viernes: los
+feriados no se descuentan. Reagendar cancela la cita vigente y crea otra, así que
+`citas` es el historial de fechas: la ficha de RRHH lo pinta con quién propuso,
+con cuántos días hábiles de aviso (en rojo si fueron menos de uno) y si la cita
+cancelada ya estaba confirmada con el candidato.
+
 La entrevista de **RRHH** ya no se agenda: ocurre fuera del sistema y queda como
 constancia en `candidatos.entrevista_rrhh_fecha` / `entrevista_rrhh_resultado`.
 Esa constancia (fecha **y** resultado) es **obligatoria** para poder enviar el
 candidato al jefe.
 
 Reglas duras (backend): no se envía candidato al jefe sin CV **ni sin la
-constancia de la entrevista de RRHH**; agendar exige 2 fechas futuras distintas;
+constancia de la entrevista de RRHH**; agendar exige 2 fechas en días distintos
+desde el 2.º día hábil;
 completar alta exige fecha de ingreso + reglamento enviado + documentos
 obligatorios **validados** por RRHH **+ los datos del alta completos**; las
 propuestas vencidas expiran automáticamente (lazy) al cargar cierre/dashboard.

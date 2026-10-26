@@ -20,6 +20,7 @@ require_once 'includes/flujo.php';
 require_once 'includes/catalogos.php';
 require_once 'includes/vacantes.php';
 require_once 'includes/notificaciones.php';
+require_once 'includes/citas.php';
 
 $noEmp = requiereSesionJson();
 $accion = $_POST['accion'] ?? $_GET['accion'] ?? '';
@@ -160,7 +161,8 @@ switch ($accion) {
                     ) AS cita_sugerida,
                     (SELECT ci.fecha_confirmada FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' AND ci.estatus IN ('confirmada','realizada') ORDER BY ci.id DESC LIMIT 1) AS cita_confirmada,
                     (SELECT ci.notas FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' ORDER BY ci.id DESC LIMIT 1) AS cita_notas,
-                    (SELECT ci.fecha_candidato FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' ORDER BY ci.id DESC LIMIT 1) AS cita_fecha_candidato
+                    (SELECT ci.fecha_candidato FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' ORDER BY ci.id DESC LIMIT 1) AS cita_fecha_candidato,
+                    (SELECT COUNT(*) FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' AND ci.estatus = 'cancelada') AS citas_reagendadas
              FROM candidatos c
              INNER JOIN vacantes v ON v.id = c.id_vacante
              WHERE v.no_empleado_solicitante = ?
@@ -177,7 +179,11 @@ switch ($accion) {
         $res = $stmt->get_result();
         $data = []; while ($r = $res->fetch_assoc()) $data[] = $r;
         $stmt->close();
-        responder(true, '', ['data' => $data]);
+        // La fecha mínima viaja con el listado para que los diálogos de fechas la
+        // pongan como `min` y la digan; la regla vive sólo en includes/citas.php.
+        $min = sivacFechaMinimaEntrevista();
+        responder(true, '', ['data' => $data,
+            'fecha_minima' => date('Y-m-d\TH:i', $min), 'fecha_minima_txt' => sivacFechaMinimaTexto($min)]);
     }
 
     case 'aprobar_cv': {
@@ -189,10 +195,10 @@ switch ($accion) {
         // Ownership: el candidato debe pertenecer a una vacante de la sesión.
         if (!esSolicitanteDeCandidato($conn, $noEmp, $id)) responder(false, 'No tienes permiso sobre este candidato.');
 
-        $t1 = strtotime($op1); $t2 = strtotime($op2);
-        if (!$t1 || !$t2) responder(false, 'Indica dos fechas válidas para la entrevista.');
-        if ($t1 <= time() || $t2 <= time()) responder(false, 'Las fechas deben ser futuras.');
-        if ($t1 === $t2) responder(false, 'Las dos opciones deben ser distintas.');
+        // Anticipación y días distintos (retro 2026-10-26): ver includes/citas.php.
+        $t1 = (int)strtotime($op1); $t2 = (int)strtotime($op2);
+        $error = sivacValidarOpcionesEntrevista($t1, $t2);
+        if ($error !== '') responder(false, $error);
 
         // estatus correcto
         $stmt = $conn->prepare("SELECT estatus FROM candidatos WHERE id = ? LIMIT 1");
@@ -250,11 +256,6 @@ switch ($accion) {
         if ($id <= 0) responder(false, 'Id inválido.');
         if (!esSolicitanteDeCandidato($conn, $noEmp, $id)) responder(false, 'No tienes permiso sobre este candidato.');
 
-        $t1 = strtotime($op1); $t2 = strtotime($op2);
-        if (!$t1 || !$t2) responder(false, 'Indica dos fechas válidas para la entrevista.');
-        if ($t1 <= time() || $t2 <= time()) responder(false, 'Las fechas deben ser futuras.');
-        if ($t1 === $t2) responder(false, 'Las dos opciones deben ser distintas.');
-
         $stmt = $conn->prepare("SELECT estatus FROM candidatos WHERE id = ? LIMIT 1");
         $stmt->bind_param('i', $id); $stmt->execute();
         $row = $stmt->get_result()->fetch_assoc(); $stmt->close();
@@ -264,11 +265,32 @@ switch ($accion) {
             responder(false, 'Sólo se puede reagendar mientras la entrevista sigue por hacerse.');
         }
 
-        // ¿Responde a un «el candidato no puede en ninguna»? Sólo cambia el aviso a RRHH.
-        $stmt = $conn->prepare("SELECT estatus FROM citas WHERE id_candidato = ? AND tipo = 'jefe' ORDER BY id DESC LIMIT 1");
+        // ¿Responde a un «el candidato no puede en ninguna»? Cambia el aviso a RRHH,
+        // no exige motivo y deja pasar la fecha que pidió el candidato aunque no
+        // cumpla el aviso. Las fechas de la última cita van en la campana como
+        // «antes»: es lo que RRHH le tiene que cancelar al candidato.
+        $stmt = $conn->prepare(
+            "SELECT estatus, opcion1, opcion2, fecha_confirmada, fecha_candidato
+               FROM citas WHERE id_candidato = ? AND tipo = 'jefe' ORDER BY id DESC LIMIT 1"
+        );
         $stmt->bind_param('i', $id); $stmt->execute();
-        $ultima = $stmt->get_result()->fetch_assoc(); $stmt->close();
+        $ultima = $stmt->get_result()->fetch_assoc() ?: []; $stmt->close();
         $trasRechazo = ($ultima['estatus'] ?? '') === 'rechazada';
+
+        // Anticipación y días distintos (retro 2026-10-26): ver includes/citas.php.
+        $t1 = (int)strtotime($op1); $t2 = (int)strtotime($op2);
+        $error = sivacValidarOpcionesEntrevista($t1, $t2, $trasRechazo ? ($ultima['fecha_candidato'] ?? null) : null);
+        if ($error !== '') responder(false, $error);
+        // El motivo queda en las notas de la cita nueva y es lo que la ficha de RRHH
+        // enseña junto al cambio: sin él, el historial dice que se movió pero no por qué.
+        if (!$trasRechazo && $notas === '') responder(false, 'Indica el motivo del cambio de fechas.');
+
+        $antes = '';
+        if (($ultima['estatus'] ?? '') === 'confirmada' && !empty($ultima['fecha_confirmada'])) {
+            $antes = date('d/m/Y H:i', strtotime($ultima['fecha_confirmada'])) . ', ya confirmada con el candidato';
+        } elseif (($ultima['estatus'] ?? '') === 'pendiente') {
+            $antes = date('d/m/Y H:i', strtotime($ultima['opcion1'])) . ' o ' . date('d/m/Y H:i', strtotime($ultima['opcion2']));
+        }
 
         // Se cancelan las citas VIGENTES, no sólo las pendientes: si ya estaba
         // confirmada y se deja viva, el candidato queda con dos entrevistas y la
@@ -291,7 +313,9 @@ switch ($accion) {
         // otra vez en su bandeja de confirmar.
         if ($actual === 'entrevista_confirmada') {
             $r = cambiarEstatusCandidato($conn, $id, 'aprobado_jefe', $noEmp,
-                'El solicitante reagendó la entrevista.' . ($notas !== '' ? ' Notas: ' . $notas : ''));
+                'El solicitante reagendó la entrevista'
+                . (!empty($ultima['fecha_confirmada']) ? ' confirmada para ' . date('d/m/Y H:i', strtotime($ultima['fecha_confirmada'])) : '')
+                . '.' . ($notas !== '' ? ' Motivo: ' . $notas : ''));
             if (!$r['ok']) responder(false, $r['message']);
         }
 
@@ -312,8 +336,9 @@ switch ($accion) {
                 'titulo' => ($trasRechazo ? 'Nuevas fechas de entrevista del solicitante — ' : 'Entrevista reagendada por el solicitante — ')
                     . $info['nombre'],
                 'mensaje' => $info['folio'] . ' · nuevas opciones: ' . $fmt1 . ' o ' . $fmt2
+                    . ($antes !== '' ? ' (antes: ' . $antes . ')' : '')
                     . '; confirmar cuál elige el candidato'
-                    . ($notas !== '' ? ' · ' . $notas : ''),
+                    . ($notas !== '' ? ($trasRechazo ? ' · ' : ' · Motivo: ') . $notas : ''),
                 'url' => 'candidatos.php',
             ]);
         }
