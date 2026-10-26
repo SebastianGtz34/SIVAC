@@ -14,6 +14,7 @@ require_once 'includes/archivos.php';
 require_once 'includes/flujo.php';
 require_once 'includes/notificaciones.php';
 require_once 'includes/catalogos.php';
+require_once 'includes/citas.php';
 
 // Detecta POST que excedió post_max_size antes de tocar $_POST.
 if (sivacPostDesbordado()) {
@@ -200,10 +201,36 @@ switch ($accion) {
         // el usuario vino a ver —datos del candidato e historial— ya está resuelto
         // arriba. Antes, un esquema desfasado en cualquiera de estas tres tablas
         // dejaba la ficha entera sin abrir.
+        // Las citas son el historial de fechas de la entrevista del jefe: reagendar
+        // cancela la vigente y crea otra. Van con quién propuso (el solicitante),
+        // quién confirmó y con cuánto aviso llegó cada propuesta (retro 2026-10-26).
         $citas = [];
-        if ($stmt = $conn->prepare("SELECT * FROM citas WHERE id_candidato = ? ORDER BY id DESC")) {
+        if ($stmt = $conn->prepare(
+            "SELECT ci.*, uc.nombre AS confirmada_por_nombre, us.nombre AS solicitante_nombre
+               FROM citas ci
+              INNER JOIN candidatos c ON c.id = ci.id_candidato
+              INNER JOIN vacantes v ON v.id = c.id_vacante
+               LEFT JOIN mess_rrhh.usuarios uc ON uc.noEmpleado = ci.confirmada_por
+               LEFT JOIN mess_rrhh.usuarios us ON us.noEmpleado = v.no_empleado_solicitante
+              WHERE ci.id_candidato = ? ORDER BY ci.id DESC"
+        )) {
             $stmt->bind_param('i', $id); $stmt->execute(); $rc = $stmt->get_result();
             while ($r = $rc->fetch_assoc()) $citas[] = $r; $stmt->close();
+        }
+        // Aviso = días hábiles completos entre la propuesta y su opción más próxima.
+        // La fecha que pidió el propio candidato (cita anterior 'rechazada') no
+        // cuenta: ésa ya estaba hablada con él y no es un aviso corto del jefe.
+        foreach ($citas as $i => $ci) {
+            $previa = $citas[$i + 1] ?? null;  // DESC: la siguiente es la anterior
+            $pedida = ($previa && $previa['estatus'] === 'rechazada') ? (string)$previa['fecha_candidato'] : '';
+            $ts = [];
+            foreach ([$ci['opcion1'], $ci['opcion2']] as $op) {
+                if ($pedida !== '' && substr($op, 0, 16) === substr($pedida, 0, 16)) continue;
+                $ts[] = strtotime($op);
+            }
+            $dias = $ts ? sivacDiasHabilesEntre(strtotime($ci['fecha_creacion']), min($ts)) : null;
+            $citas[$i]['dias_aviso']  = $dias;
+            $citas[$i]['aviso_corto'] = ($dias !== null && $dias < SIVAC_CITA_DIAS_HABILES_AVISO) ? 1 : 0;
         }
 
         $props = [];

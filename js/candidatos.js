@@ -424,6 +424,51 @@ $(function () {
             });
         }
 
+        // Fechas de la entrevista del jefe (retro 2026-10-26). Ya vivían en `citas`
+        // —reagendar cancela la vigente y crea otra— pero la ficha no las enseñaba,
+        // y sin ellas no se veía quién movió la entrevista, cuándo ni con qué aviso.
+        var citas = (res.citas || []).slice().reverse();  // de la más vieja a la más nueva
+        citas.forEach(function (ci, i) {
+            var previa = i > 0 ? citas[i - 1] : null;
+            var accion = !previa ? 'Propuso fechas de entrevista'
+                       : previa.estatus === 'rechazada' ? 'Propuso nuevas fechas (el candidato no pudo en las anteriores)'
+                       : 'Reagendó la entrevista';
+            var estado;
+            if (ci.estatus === 'pendiente') {
+                estado = escHtml('Pendiente de confirmar con el candidato.');
+            } else if (ci.estatus === 'confirmada') {
+                estado = escHtml('Confirmada' + (ci.confirmada_por_nombre ? ' por ' + ci.confirmada_por_nombre : '')
+                    + ': ' + formatearFecha(ci.fecha_confirmada) + '.');
+            } else if (ci.estatus === 'realizada') {
+                estado = escHtml('Realizada el ' + formatearFecha(ci.fecha_confirmada) + '.');
+            } else if (ci.estatus === 'rechazada') {
+                estado = escHtml('El candidato no pudo en ninguna'
+                    + (ci.fecha_candidato ? '; pidió el ' + formatearFecha(ci.fecha_candidato) : '') + '.');
+            } else {
+                // Cancelada. Si ya tenía fecha confirmada, RRHH ya se la había dado
+                // al candidato: es lo que hay que poder demostrar.
+                estado = ci.fecha_confirmada
+                    ? '<strong class="text-danger">' + escHtml('Ya estaba confirmada con el candidato para el '
+                        + formatearFecha(ci.fecha_confirmada) + '; se canceló al reagendar.') + '</strong>'
+                    : escHtml('Reemplazada por la siguiente propuesta.');
+            }
+            var aviso = '';
+            if (ci.dias_aviso !== null && ci.dias_aviso !== undefined) {
+                var txtAviso = 'Aviso: ' + ci.dias_aviso + (Number(ci.dias_aviso) === 1 ? ' día hábil' : ' días hábiles');
+                aviso = ' · ' + (String(ci.aviso_corto) === '1'
+                    ? '<strong class="text-danger">' + escHtml(txtAviso) + '</strong>'
+                    : '<span class="text-muted">' + escHtml(txtAviso) + '</span>');
+            }
+            items.push({
+                key: ci.fecha_creacion,
+                html: '<li><div class="t-fecha">' + formatearFecha(ci.fecha_creacion) + ' · '
+                    + escHtml(ci.solicitante_nombre || 'Solicitante') + '</div>'
+                    + escHtml(accion + ': ' + formatearFecha(ci.opcion1) + ' o ' + formatearFecha(ci.opcion2)) + aviso
+                    + '<div class="small">' + estado + '</div>'
+                    + (ci.notas ? '<div class="text-muted small">' + escHtml(ci.notas) + '</div>' : '') + '</li>'
+            });
+        });
+
         // Orden descendente (lo más reciente arriba). Las llaves son 'YYYY-MM-DD HH:MM:SS'
         // → la comparación lexicográfica coincide con la cronológica.
         items.sort(function (a, b) { return a.key < b.key ? 1 : (a.key > b.key ? -1 : 0); });
