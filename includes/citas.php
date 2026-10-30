@@ -147,4 +147,33 @@ if (!function_exists('sivacEsDiaHabil')) {
         }
         return $citas;
     }
+
+    /**
+     * Correo del cambio de fechas (retro 2026-10-30): en cada paso —el jefe lo
+     * pide o lo corrige, RRHH le da el VoBo o no— le llega a los DOS lados, al jefe
+     * dueño de la vacante y a RRHH (los mismos de la campana, SIVAC_DEPTS_NOTIF).
+     * Devuelve los campos de correo para notificarEvento(); $filas = etiqueta →
+     * texto plano (se escapa aquí) y las vacías no se pintan.
+     */
+    function sivacCorreoCambioFechas(mysqli $conn, int $noEmpleadoJefe, string $titulo, string $folio, array $filas): array {
+        $correos = array_column(sivacEmpleadosRRHH($conn), 'correo');
+        $jefe = obtenerDatosEmpleado($conn, $noEmpleadoJefe);
+        if (!empty($jefe['correo'])) $correos[] = $jefe['correo'];
+
+        $html = '<table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;font-size:14px;">';
+        foreach ($filas as $etiqueta => $texto) {
+            if ((string)$texto === '') continue;
+            $html .= '<tr><td style="padding:6px 12px 6px 0;color:#6b7280;vertical-align:top;white-space:nowrap;">'
+                . htmlspecialchars($etiqueta) . '</td>'
+                . '<td style="padding:6px 0;">' . nl2br(htmlspecialchars((string)$texto)) . '</td></tr>';
+        }
+        $html .= '</table>';
+
+        return [
+            'correos'       => array_values(array_unique(array_filter($correos))),
+            'correo_asunto' => 'NEST — ' . $titulo . ' (' . $folio . ')',
+            'correo_titulo' => $titulo,
+            'correo_html'   => $html,
+        ];
+    }
 }

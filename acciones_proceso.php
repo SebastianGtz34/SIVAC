@@ -320,15 +320,24 @@ switch ($accion) {
             $ok = $stmt->affected_rows > 0; $stmt->close();
             if (!$ok) responder(false, 'El cambio de fechas cambió; recarga e inténtalo de nuevo.');
 
-            notificarEvento($conn, 'cambio_fechas_no_aprobado', [
+            $avisoCorreo = notificarConCorreo($conn, 'cambio_fechas_no_aprobado', [
                 'destino_no_empleado' => (int)$c['no_empleado_solicitante'],
                 'id_candidato' => $id, 'id_vacante' => (int)$c['id_vacante'],
                 'titulo' => 'RRHH no aprobó tu cambio de fechas — ' . $c['nombre'],
                 'mensaje' => $c['folio'] . ' · ' . $motivo
                     . ($vigenteTxt !== '' ? ' · sigue en pie: ' . $vigenteTxt : ''),
                 'url' => 'embed_solicitante.php',
-            ]);
-            responder(true, 'Cambio no aprobado; se le avisó al jefe. Sigue la fecha anterior.');
+            ] + sivacCorreoCambioFechas($conn, (int)$c['no_empleado_solicitante'], 'Cambio de fechas no aprobado', $c['folio'], [
+                'Candidato'           => $c['nombre'],
+                'Vacante'             => $c['folio'] . ' · ' . $c['puesto'],
+                'Fechas que se pidieron' => $nuevasTxt,
+                'Sigue en pie'        => $vigenteTxt,
+                'Motivo de RRHH'      => $motivo,
+                'Decidió'             => obtenerDatosEmpleado($conn, $noEmp)['nombre'] ?? ('#' . $noEmp),
+            ]), 'del cambio de fechas', 'no hay correos registrados');
+            responder(true, 'Cambio no aprobado; se le avisó al jefe. Sigue la fecha anterior.'
+                . ($avisoCorreo !== '' ? $avisoCorreo . ' Al jefe sí le llegó la campana.' : ''),
+                ['aviso' => $avisoCorreo !== '' ? 1 : 0]);
         }
 
         // Aprobar. Las fechas pudieron pasar mientras esperaban el VoBo.
@@ -362,16 +371,26 @@ switch ($accion) {
             if (!$r['ok']) responder(false, $r['message']);
         }
 
-        notificarEvento($conn, 'cambio_fechas_aprobado', [
+        $avisoCorreo = notificarConCorreo($conn, 'cambio_fechas_aprobado', [
             'destino_no_empleado' => (int)$c['no_empleado_solicitante'],
             'id_candidato' => $id, 'id_vacante' => (int)$c['id_vacante'],
             'titulo' => 'RRHH dio el VoBo a tu cambio de fechas — ' . $c['nombre'],
             'mensaje' => $c['folio'] . ' · nuevas opciones: ' . $nuevasTxt . '; RRHH confirmará con el candidato',
             'url' => 'embed_solicitante.php',
-        ]);
+        ] + sivacCorreoCambioFechas($conn, (int)$c['no_empleado_solicitante'], 'Cambio de fechas aprobado', $c['folio'], [
+            'Candidato'       => $c['nombre'],
+            'Vacante'         => $c['folio'] . ' · ' . $c['puesto'],
+            'Se cancela'      => $vigenteTxt,
+            'Nuevas opciones' => $nuevasTxt,
+            'Motivo del jefe' => (string)($prop['notas'] ?? ''),
+            'Dio el VoBo'     => obtenerDatosEmpleado($conn, $noEmp)['nombre'] ?? ('#' . $noEmp),
+            'Siguiente paso'  => 'RRHH confirma con el candidato cuál de las fechas nuevas le queda.',
+        ]), 'del cambio de fechas', 'no hay correos registrados');
         responder(true, 'VoBo registrado. Ahora confirma con el candidato cuál de las fechas nuevas le queda.'
             . (($vig['estatus'] ?? '') === 'confirmada' && !empty($vig['fecha_confirmada'])
-                ? ' Avísale que la entrevista del ' . date('d/m/Y H:i', strtotime($vig['fecha_confirmada'])) . ' se canceló.' : ''));
+                ? ' Avísale que la entrevista del ' . date('d/m/Y H:i', strtotime($vig['fecha_confirmada'])) . ' se canceló.' : '')
+            . ($avisoCorreo !== '' ? $avisoCorreo . ' Al jefe sí le llegó la campana.' : ''),
+            ['aviso' => $avisoCorreo !== '' ? 1 : 0]);
     }
 
     // 'registrar_resultado_entrevista' se movió a acciones_solicitante.php: el

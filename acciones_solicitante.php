@@ -370,24 +370,31 @@ switch ($accion) {
         }
 
         $stmt = $conn->prepare(
-            "SELECT TRIM(CONCAT_WS(' ', c.nombre, NULLIF(c.apellidos,''))) AS nombre, v.folio, v.id AS id_vacante
+            "SELECT TRIM(CONCAT_WS(' ', c.nombre, NULLIF(c.apellidos,''))) AS nombre, v.folio, v.puesto, v.id AS id_vacante
              FROM candidatos c INNER JOIN vacantes v ON v.id = c.id_vacante WHERE c.id = ? LIMIT 1"
         );
         $stmt->bind_param('i', $id); $stmt->execute();
         $info = $stmt->get_result()->fetch_assoc(); $stmt->close();
+        $avisoCorreo = '';
         if ($info) {
-            // Sólo campana para RRHH: es quien da el VoBo y vuelve a cuadrar la fecha
-            // con el candidato. El correo al candidato sale cuando RRHH confirme,
-            // igual que en el alta de la cita: no se le mandan dos mensajes seguidos.
+            // Campana para RRHH, que da el VoBo y vuelve a cuadrar la fecha con el
+            // candidato, y correo a RRHH y al propio jefe (retro 2026-10-30). Al
+            // candidato no se le escribe aún: su correo sale cuando RRHH confirme,
+            // igual que en el alta de la cita, para no mandarle dos mensajes seguidos.
             $fmt1 = date('d/m/Y H:i', $t1); $fmt2 = date('d/m/Y H:i', $t2);
             if ($conVobo) {
                 $titulo = ($corrige ? 'El solicitante corrigió su cambio de fechas — ' : 'Cambio de fechas por aprobar — ');
                 $sigue  = '; dale el VoBo o recházalo en Candidatos';
+                $correoTitulo = $corrige ? 'Cambio de fechas corregido' : 'Cambio de fechas por aprobar';
+                $siguiente = 'RRHH da el VoBo o lo rechaza en NEST. Mientras tanto sigue en pie la fecha vigente.';
             } else {
                 $titulo = 'Nuevas fechas de entrevista del solicitante — ';
                 $sigue  = '; confirmar cuál elige el candidato';
+                $correoTitulo = 'Nuevas fechas de entrevista';
+                $siguiente = 'RRHH confirma con el candidato cuál le queda.';
             }
-            notificarEvento($conn, 'entrevista_disponibilidad', [
+            $jefeNombre = obtenerDatosEmpleado($conn, $noEmp)['nombre'] ?? ('#' . $noEmp);
+            $avisoCorreo = notificarConCorreo($conn, 'entrevista_disponibilidad', [
                 'destinos_no_empleado' => sivacDestinosRRHH($conn),
                 'id_candidato' => $id, 'id_vacante' => (int)$info['id_vacante'],
                 'titulo' => $titulo . $info['nombre'],
@@ -396,12 +403,23 @@ switch ($accion) {
                     . $sigue
                     . ($notas !== '' ? ($trasRechazo ? ' · ' : ' · Motivo: ') . $notas : ''),
                 'url' => 'candidatos.php',
-            ]);
+            ] + sivacCorreoCambioFechas($conn, $noEmp, $correoTitulo, $info['folio'], [
+                'Candidato'       => $info['nombre'],
+                'Vacante'         => $info['folio'] . ' · ' . $info['puesto'],
+                'Lo pidió'        => $jefeNombre,
+                'Fecha vigente'   => $antes,
+                'Nuevas opciones' => $fmt1 . ' o ' . $fmt2,
+                ($trasRechazo ? 'Comentarios' : 'Motivo') => $notas,
+                'Siguiente paso'  => $siguiente,
+            ]), 'del cambio de fechas', 'no hay correos registrados');
+            if ($avisoCorreo !== '') $avisoCorreo .= ' A RRHH sí le llegó la campana.';
         }
         if ($conVobo) {
-            responder(true, 'Cambio de fechas enviado. Está pendiente del VoBo de RRHH; mientras tanto sigue en pie: ' . $antes . '.');
+            responder(true, 'Cambio de fechas enviado. Está pendiente del VoBo de RRHH; mientras tanto sigue en pie: ' . $antes . '.'
+                . $avisoCorreo, ['aviso' => $avisoCorreo !== '' ? 1 : 0]);
         }
-        responder(true, 'Fechas enviadas. RRHH confirmará la fecha con el candidato.');
+        responder(true, 'Fechas enviadas. RRHH confirmará la fecha con el candidato.' . $avisoCorreo,
+            ['aviso' => $avisoCorreo !== '' ? 1 : 0]);
     }
 
     case 'descartar_cv': {
@@ -558,8 +576,10 @@ switch ($accion) {
 
         $stmt = $conn->prepare(
             "SELECT c.id, TRIM(CONCAT_WS(' ', c.nombre, NULLIF(c.apellidos,''))) AS nombre, c.estatus, c.cv_abierto_jefe,
-                    v.folio, v.puesto
-               FROM candidatos c INNER JOIN vacantes v ON v.id = c.id_vacante WHERE c.id = ? LIMIT 1"
+                    c.cv_archivo, c.id_origen, c.fecha_creacion, v.folio, v.puesto, u.nombre AS creador_nombre
+               FROM candidatos c INNER JOIN vacantes v ON v.id = c.id_vacante
+               LEFT JOIN mess_rrhh.usuarios u ON u.noEmpleado = c.creador_por
+              WHERE c.id = ? LIMIT 1"
         );
         $stmt->bind_param('i', $id); $stmt->execute();
         $cand = $stmt->get_result()->fetch_assoc(); $stmt->close();

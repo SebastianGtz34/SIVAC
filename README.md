@@ -152,8 +152,8 @@ en la campana del portal).
 | RRHH le asigna candidatos | el solicitante, uno por candidato | `embed_solicitante` |
 | El jefe aprueba el CV y da sus 2 fechas | RRHH que registró al candidato | `candidatos` |
 | El jefe descarta el CV | RRHH que registró al candidato | `candidatos` |
-| El jefe pide cambiar una fecha vigente | todo RRHH (da el VoBo) | `candidatos` |
-| RRHH da o niega el VoBo a ese cambio | el solicitante (con el motivo si lo niega) | `embed_solicitante` |
+| El jefe pide cambiar una fecha vigente, la corrige o propone otras tras «Ninguna le queda» | todo RRHH (da el VoBo); **correo** a RRHH y al jefe | `candidatos` |
+| RRHH da o niega el VoBo a ese cambio | el solicitante (con el motivo si lo niega); **correo** al jefe y a RRHH | `embed_solicitante` |
 | RRHH marca «No apto» a un candidato que ya tiene el jefe | el solicitante («pasa a RRHH para aclaración») | `embed_solicitante` |
 | RRHH comenta «para el jefe» / el jefe comenta | el solicitante / todo RRHH (con dedup) | `embed_solicitante` / `candidatos` |
 | RRHH confirma la fecha que eligió el candidato | el solicitante | `embed_solicitante` |
@@ -187,7 +187,9 @@ falta `config_correo.php`, correo apagado, candidato sin correo): la acción se
 guarda igual, pero el toast sale en **ámbar** con el motivo. Para los correos al
 candidato (opciones y confirmación de entrevista, propuesta, documento
 rechazado, prórroga) se usa `notificarCandidato()`, que manda y devuelve la
-advertencia lista para pegarla al mensaje con `aviso` = 1. El reglamento (cuyo
+advertencia lista para pegarla al mensaje con `aviso` = 1; para los internos (el
+del cambio de fechas, a RRHH y al jefe, armado con `sivacCorreoCambioFechas()`),
+`notificarConCorreo()`, de la que `notificarCandidato()` es un caso. El reglamento (cuyo
 envío *es* la acción, así que si falla, falla) y los avisos del alta por área
 lo resuelven con el `$envio` de `notificarEvento()`. Un correo nuevo tiene que
 entrar por uno de esos dos caminos.
@@ -277,7 +279,13 @@ lo ve RRHH. El servidor no le manda al jefe las notas internas.
 **CV abierto**: `candidatos.cv_abierto_jefe` guarda la primera vez que el jefe
 dueño de la vacante abrió el CV (lo marca `descargar.php`, sólo si el archivo sí
 se entregó; RRHH abriéndolo no cuenta). La tarjeta del jefe dice «CV sin abrir» y
-la tabla de RRHH, si ya lo abrió y cuándo.
+la tabla de RRHH, si ya lo abrió y cuándo. Si RRHH reemplaza el CV, vuelve a «sin
+abrir» en todas las fichas de la persona.
+
+**El CV en la bitácora**: el alta exige el CV, así que la ficha y el Seguimiento del
+jefe dicen «CV agregado» con la fecha y hora del alta (también en las fichas de
+antes). Un reemplazo deja su propia fila, «CV reemplazado: archivo.pdf», en la
+bitácora de cada ficha de la persona.
 
 **«No apto» de RRHH en la tarjeta del jefe**: el jefe ve el veredicto de la
 entrevista de RRHH. Un «No apto» no descarta ni bloquea, pero la tarjeta y los

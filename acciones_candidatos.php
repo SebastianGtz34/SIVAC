@@ -179,8 +179,9 @@ switch ($accion) {
         // sale como «No se pudo cargar.» y no dice qué columna falta. Ver
         // DESPLIEGUE.md, «Cambios de esquema pendientes».
         $stmt = $conn->prepare(
-            "SELECT c.*, v.folio, v.puesto, v.no_empleado_solicitante
+            "SELECT c.*, v.folio, v.puesto, v.no_empleado_solicitante, u.nombre AS creador_nombre
              FROM candidatos c INNER JOIN vacantes v ON v.id = c.id_vacante
+             LEFT JOIN mess_rrhh.usuarios u ON u.noEmpleado = c.creador_por
              WHERE c.id = ? LIMIT 1"
         );
         if (!$stmt) responder(false, 'No se pudo leer al candidato: ' . $conn->error);
@@ -439,14 +440,28 @@ switch ($accion) {
         // El CV es de la PERSONA, y sus fichas en otras vacantes apuntan al mismo
         // archivo: se actualizan todas. Si sólo se cambiara ésta, al borrar el
         // archivo viejo las demás quedarían apuntando a un PDF inexistente.
+        // Un CV nuevo no lo ha visto ningún jefe: vuelve a «CV sin abrir».
         $enFichas = sivacInFichasDePersona($conn, $id);
         $stmt = $conn->prepare(
-            "UPDATE candidatos SET cv_archivo = ?, cv_nombre_original = ?, cv_tamano = ?
+            "UPDATE candidatos SET cv_archivo = ?, cv_nombre_original = ?, cv_tamano = ?, cv_abierto_jefe = NULL
               WHERE id IN ($enFichas)"
         );
         $stmt->bind_param('ssi', $cv['nombre'], $cv['original'], $cv['tamano']);
         $ok = $stmt->execute(); $stmt->close();
         if ($ok && $row['cv_archivo']) @unlink(SIVAC_DIR_CV . basename($row['cv_archivo']));
+        if ($ok) {
+            // Fecha y hora del cambio en la bitácora de cada ficha (retro 2026-10-30).
+            // El alta no lo necesita: ahí el CV es obligatorio y su hora es la de la
+            // ficha (ver sivacItemCvAgregado() en js/funciones.js). El estatus no
+            // cambia: es una fila de constancia, como la de «Ninguna le queda».
+            $nota = 'CV reemplazado: ' . $cv['original'];
+            $hist = $conn->prepare(
+                "INSERT INTO candidatos_historial (id_candidato, estatus_anterior, estatus_nuevo, no_empleado, comentario)
+                 SELECT id, estatus, estatus, ?, ? FROM candidatos WHERE id IN ($enFichas)"
+            );
+            $hist->bind_param('is', $noEmp, $nota);
+            $hist->execute(); $hist->close();
+        }
         responder($ok, $ok ? 'CV actualizado.' : 'No se pudo actualizar el CV.');
     }
 
