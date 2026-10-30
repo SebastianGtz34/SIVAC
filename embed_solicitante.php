@@ -1128,7 +1128,8 @@ $(function () {
                 accion: 'reagendar_entrevista', id: id,
                 opcion1: r.value.opcion1, opcion2: r.value.opcion2, notas: r.value.notas
             }, function (err, res) {
-                if (res && res.success) { mostrarToast(res.message, 'success'); cargarVacantes(); cargarCandidatos(); }
+                // Ámbar si el correo del cambio no salió (la campana a RRHH sí).
+                if (res && res.success) { mostrarToast(res.message, res.aviso ? 'warning' : 'success'); cargarVacantes(); cargarCandidatos(); }
                 else { mostrarToast((res && res.message) || 'Error.', 'error'); }
             });
         });
@@ -1358,6 +1359,8 @@ $(function () {
         var c = res.data;
         var items = sivacItemsHistorial(res.historial, estatusS)
             .concat(sivacItemsCitas(res.citas, c.estatus));
+        var cvAgregado = sivacItemCvAgregado(c);
+        if (cvAgregado) items.push(cvAgregado);
         if (c.cv_abierto_jefe) {
             items.push({
                 key: c.cv_abierto_jefe,

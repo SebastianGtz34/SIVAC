@@ -224,13 +224,25 @@ if (!function_exists('notificarEvento')) {
      * reglamento y los avisos del alta ya lo revisaban por su cuenta.
      */
     function notificarCandidato(mysqli $conn, string $evento, array $datos): string {
+        $aviso = notificarConCorreo($conn, $evento, $datos, 'al candidato', 'no tiene correo registrado');
+        return $aviso !== '' ? $aviso . ' Avísale por otro medio.' : '';
+    }
+
+    /**
+     * La misma regla para cualquier correo (retro 2026-10-30: el del cambio de
+     * fechas, que va al jefe y a RRHH): notificarEvento() y, si el correo no salió,
+     * la advertencia para pegar al mensaje con `aviso` = 1. '' si salió.
+     * $que completa «El correo … NO se envió» y $sinDestino es el motivo cuando no
+     * había a quién mandarlo.
+     */
+    function notificarConCorreo(mysqli $conn, string $evento, array $datos, string $que, string $sinDestino): string {
         $envio = null;
         notificarEvento($conn, $evento, $datos, $envio);
         if (!empty($envio['ok'])) return '';
         $motivo = !empty($envio['intentado'])
             ? (($envio['error'] ?? '') ?: 'No se pudo enviar')
-            : 'no tiene correo registrado';
-        return ' ⚠️ El correo al candidato NO se envió: ' . rtrim($motivo, '.') . '. Avísale por otro medio.';
+            : $sinDestino;
+        return ' ⚠️ El correo ' . $que . ' NO se envió: ' . rtrim($motivo, '.') . '.';
     }
 
     /** Contador de notificaciones de SIVAC no leídas de un empleado (campana del portal). */

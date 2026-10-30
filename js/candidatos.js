@@ -407,6 +407,8 @@ $(function () {
         // el CV. Las constancias son DATE (sin hora); se les da las 12:00 como llave
         // neutra para desempatar contra los DATETIME del historial.
         var items = sivacItemsHistorial(res.historial, estatusS);
+        var cvAgregado = sivacItemCvAgregado(c);
+        if (cvAgregado) items.push(cvAgregado);
 
         if (c.cv_abierto_jefe) {
             items.push({
@@ -574,7 +576,8 @@ $(function () {
                 decision: r.isConfirmed ? 'aprobar' : 'rechazar',
                 motivo: r.isDenied ? r.value : ''
             }, function (err, res) {
-                if (res && res.success) { mostrarToast(res.message, 'success'); cargar(); }
+                // Ámbar si el correo del cambio no salió (la campana al jefe sí).
+                if (res && res.success) { mostrarToast(res.message, res.aviso ? 'warning' : 'success'); cargar(); }
                 else { mostrarToast((res && res.message) || 'Error.', 'error'); }
             });
         });

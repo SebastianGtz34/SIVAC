@@ -307,6 +307,23 @@ function sivacItemsCitas(citas, estatusCandidato) {
 
 /** Elementos {key, html} → <ul class="timeline">, lo más reciente arriba. Las llaves
  *  son 'YYYY-MM-DD HH:MM:SS': la comparación de texto coincide con la cronológica. */
+/** «CV agregado» → elemento del timeline, o null (retro 2026-10-30). El CV es
+ *  obligatorio al registrar al candidato, así que entra con la ficha: su fecha y
+ *  hora son las del alta, también en las fichas de antes. Los reemplazos
+ *  posteriores quedan como fila propia de la bitácora. La llave lleva «.1» para
+ *  que, con la misma hora, quede justo después del alta. */
+function sivacItemCvAgregado(c) {
+    if (!c || !c.cv_archivo || !c.fecha_creacion) return null;
+    return {
+        key: c.fecha_creacion + '.1',
+        html: '<li><div class="t-fecha">' + formatearFecha(c.fecha_creacion) + ' · ' + escHtml(c.creador_nombre || 'RRHH') + '</div>'
+            + (c.id_origen
+                ? 'CV agregado: el de su postulación anterior (#CAN-' + String(c.id_origen).padStart(4, '0') + ').'
+                : 'CV agregado al registrar al candidato.')
+            + '</li>'
+    };
+}
+
 function sivacPintarTimeline(items) {
     items = (items || []).slice().sort(function (a, b) { return a.key < b.key ? 1 : (a.key > b.key ? -1 : 0); });
     if (!items.length) return '<p class="text-muted small">Sin movimientos todavía.</p>';
