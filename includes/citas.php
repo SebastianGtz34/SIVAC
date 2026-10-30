@@ -15,6 +15,14 @@
  *
  * Hábil = lunes a viernes. No hay catálogo de feriados: un feriado cuenta como
  * hábil. Las opciones en sí pueden caer en fin de semana; sólo se mide el aviso.
+ *
+ * VoBo de los cambios (retro 2026-10-29): si ya hay una fecha VIGENTE (cita
+ * 'pendiente' o 'confirmada'), el jefe no la cambia directo: su propuesta nace
+ * 'por_aprobar' y la vigente sigue en pie hasta que RRHH da «Enterado» (se
+ * aplica) o la rechaza con motivo ('no_aprobada'). Mientras tanto RRHH no puede
+ * confirmar la vigente con el candidato: es el candado. Ninguno de los dos
+ * estados es «la cita» del candidato, así que toda consulta de «la última cita»
+ * los excluye. Tras «Ninguna le queda» no hay vigente y no hace falta VoBo.
  */
 
 // Días hábiles completos que deben quedar entre el aviso y la entrevista.
@@ -83,5 +91,60 @@ if (!function_exists('sivacEsDiaHabil')) {
                 . ': RRHH necesita al menos un día hábil completo para localizar al candidato.';
         }
         return '';
+    }
+
+    /** El cambio de fechas del jefe que espera el VoBo de RRHH, o null. */
+    function sivacCitaPorAprobar(mysqli $conn, int $idCandidato): ?array {
+        $stmt = $conn->prepare(
+            "SELECT id, opcion1, opcion2, notas FROM citas
+              WHERE id_candidato = ? AND tipo = 'jefe' AND estatus = 'por_aprobar'
+              ORDER BY id DESC LIMIT 1"
+        );
+        $stmt->bind_param('i', $idCandidato);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        return $row ?: null;
+    }
+
+    /**
+     * Historial de fechas de la entrevista del jefe, de la más nueva a la más
+     * vieja, con quién propuso, quién confirmó, quién dio el VoBo y con cuántos
+     * días hábiles de aviso llegó cada propuesta. Lo pintan la ficha de RRHH y el
+     * seguimiento del jefe (js/funciones.js → sivacItemsCitas). Si la consulta
+     * falla devuelve [] en vez de tumbar la respuesta: es un anexo de la ficha.
+     */
+    function sivacHistorialCitas(mysqli $conn, int $idCandidato): array {
+        $citas = [];
+        if ($stmt = $conn->prepare(
+            "SELECT ci.*, uc.nombre AS confirmada_por_nombre, us.nombre AS solicitante_nombre,
+                    uv.nombre AS vobo_por_nombre
+               FROM citas ci
+              INNER JOIN candidatos c ON c.id = ci.id_candidato
+              INNER JOIN vacantes v ON v.id = c.id_vacante
+               LEFT JOIN mess_rrhh.usuarios uc ON uc.noEmpleado = ci.confirmada_por
+               LEFT JOIN mess_rrhh.usuarios us ON us.noEmpleado = v.no_empleado_solicitante
+               LEFT JOIN mess_rrhh.usuarios uv ON uv.noEmpleado = ci.vobo_por
+              WHERE ci.id_candidato = ? ORDER BY ci.id DESC"
+        )) {
+            $stmt->bind_param('i', $idCandidato); $stmt->execute(); $rc = $stmt->get_result();
+            while ($r = $rc->fetch_assoc()) $citas[] = $r; $stmt->close();
+        }
+        // Aviso = días hábiles completos entre la propuesta y su opción más próxima.
+        // La fecha que pidió el propio candidato (cita anterior 'rechazada') no
+        // cuenta: ésa ya estaba hablada con él y no es un aviso corto del jefe.
+        foreach ($citas as $i => $ci) {
+            $previa = $citas[$i + 1] ?? null;  // DESC: la siguiente es la anterior
+            $pedida = ($previa && $previa['estatus'] === 'rechazada') ? (string)$previa['fecha_candidato'] : '';
+            $ts = [];
+            foreach ([$ci['opcion1'], $ci['opcion2']] as $op) {
+                if ($pedida !== '' && substr($op, 0, 16) === substr($pedida, 0, 16)) continue;
+                $ts[] = strtotime($op);
+            }
+            $dias = $ts ? sivacDiasHabilesEntre(strtotime($ci['fecha_creacion']), min($ts)) : null;
+            $citas[$i]['dias_aviso']  = $dias;
+            $citas[$i]['aviso_corto'] = ($dias !== null && $dias < SIVAC_CITA_DIAS_HABILES_AVISO) ? 1 : 0;
+        }
+        return $citas;
     }
 }

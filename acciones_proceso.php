@@ -9,6 +9,10 @@
  * confirma la opción aquí. La entrevista de RRHH ya no se agenda: ocurre fuera
  * del sistema y solo deja constancia en la tabla candidatos.
  *
+ * Si el jefe pide cambiar una fecha vigente, RRHH le da el VoBo aquí
+ * ('vobo_cambio_fechas'); mientras esté pendiente no se confirma nada con el
+ * candidato (retro 2026-10-29, ver includes/citas.php).
+ *
  * El estatus destino nunca lo manda el cliente: se deriva del paso del proceso.
  */
 header('Content-Type: application/json; charset=utf-8');
@@ -17,6 +21,7 @@ require_once 'auth.php';
 require_once 'includes/respuesta.php';
 require_once 'includes/flujo.php';
 require_once 'includes/notificaciones.php';
+require_once 'includes/citas.php';
 
 $noEmp = requiereSesionJson();
 requiereRRHHJson($conn, $noEmp);
@@ -62,7 +67,7 @@ switch ($accion) {
                        (SELECT ci.opcion1 FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' AND ci.estatus = 'pendiente' ORDER BY ci.id DESC LIMIT 1) AS cita_jefe_op1,
                        (SELECT ci.opcion2 FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' AND ci.estatus = 'pendiente' ORDER BY ci.id DESC LIMIT 1) AS cita_jefe_op2,
                        (SELECT ci.fecha_confirmada FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' AND ci.estatus IN ('confirmada','realizada') ORDER BY ci.id DESC LIMIT 1) AS cita_jefe_confirmada,
-                       (SELECT ci.notas FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' ORDER BY ci.id DESC LIMIT 1) AS cita_jefe_notas
+                       (SELECT ci.notas FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' AND ci.estatus NOT IN ('por_aprobar','no_aprobada') ORDER BY ci.id DESC LIMIT 1) AS cita_jefe_notas
                 FROM candidatos c INNER JOIN vacantes v ON v.id = c.id_vacante
                 WHERE c.estatus IN ('aprobado_jefe','entrevista_confirmada','entrevistado')
                 ORDER BY FIELD(c.estatus,'entrevista_confirmada','aprobado_jefe','entrevistado'), c.id DESC";
@@ -148,6 +153,10 @@ switch ($accion) {
 
         $cita = citaPendiente($conn, $id);
         if (!$cita) responder(false, 'No hay disponibilidad registrada por el solicitante todavía.');
+        // El candado: el jefe ya pidió mover estas fechas.
+        if (sivacCitaPorAprobar($conn, $id)) {
+            responder(false, 'El jefe pidió cambiar estas fechas: primero dale el VoBo o recházalo.');
+        }
 
         $fecha = $opcion === 1 ? $cita['opcion1'] : $cita['opcion2'];
         // Las notas de la confirmación se agregan a las que ya traía la cita.
@@ -219,10 +228,13 @@ switch ($accion) {
         }
         $cita = citaPendiente($conn, $id);
         if (!$cita) responder(false, 'No hay fechas del jefe pendientes de confirmar.');
+        if (sivacCitaPorAprobar($conn, $id)) {
+            responder(false, 'El jefe pidió cambiar estas fechas: primero dale el VoBo o recházalo.');
+        }
 
         $fechaVal = $tp ? date('Y-m-d H:i:s', $tp) : null;
         $nota = 'El candidato no puede en ninguna de las dos fechas.'
-            . ($tp ? ' Pide el ' . date('d/m/Y H:i', $tp) . '.' : '')
+            . ($tp ? ' Disponibilidad del candidato: ' . date('d/m/Y H:i', $tp) . '.' : '')
             . ($notas !== '' ? ' ' . $notas : '');
         $stmt = $conn->prepare(
             "UPDATE citas
@@ -252,11 +264,114 @@ switch ($accion) {
             'id_candidato' => $id, 'id_vacante' => (int)$c['id_vacante'],
             'titulo' => 'El candidato no puede en tus fechas — ' . $c['nombre'],
             'mensaje' => $c['folio'] . ' · '
-                . ($tp ? 'pide el ' . date('d/m/Y H:i', $tp) . '; ' : '')
+                . ($tp ? 'disponibilidad del candidato: ' . date('d/m/Y H:i', $tp) . '; ' : '')
                 . 'propón nuevas fechas de entrevista',
             'url' => 'embed_solicitante.php',
         ]);
         responder(true, 'Se le pidió al jefe que proponga nuevas fechas.');
+    }
+
+    case 'vobo_cambio_fechas': {
+        // VoBo de RRHH al cambio de fechas que pidió el jefe (retro 2026-10-29).
+        //   aprobar  → «Enterado»: la fecha vigente se cancela y la nueva queda
+        //              pendiente de que el candidato elija; si ya estaba
+        //              confirmada, el candidato vuelve a 'aprobado_jefe'.
+        //   rechazar → con motivo: la propuesta queda 'no_aprobada' y sigue la vigente.
+        // El correo al candidato sale, como siempre, cuando RRHH confirme la fecha.
+        $id       = (int)($_POST['id'] ?? 0);
+        $decision = $_POST['decision'] ?? '';
+        $motivo   = trim($_POST['motivo'] ?? '');
+        if ($id <= 0) responder(false, 'Id inválido.');
+        if (!in_array($decision, ['aprobar', 'rechazar'], true)) responder(false, 'Decisión inválida.');
+
+        $c = ctxCandidato($conn, $id);
+        if (!$c) responder(false, 'Candidato no encontrado.');
+        if ($c['estatus'] !== 'aprobado_jefe' && $c['estatus'] !== 'entrevista_confirmada') {
+            responder(false, 'La entrevista de este candidato ya no se puede mover.');
+        }
+        $prop = sivacCitaPorAprobar($conn, $id);
+        if (!$prop) responder(false, 'No hay un cambio de fechas esperando VoBo; recarga la lista.');
+
+        // La fecha vigente: es lo que se cancela al aprobar o lo que sigue al rechazar.
+        $stmt = $conn->prepare(
+            "SELECT estatus, opcion1, opcion2, fecha_confirmada FROM citas
+              WHERE id_candidato = ? AND tipo = 'jefe' AND estatus IN ('pendiente','confirmada')
+              ORDER BY id DESC LIMIT 1"
+        );
+        $stmt->bind_param('i', $id); $stmt->execute();
+        $vig = $stmt->get_result()->fetch_assoc() ?: []; $stmt->close();
+        $vigenteTxt = '';
+        if (($vig['estatus'] ?? '') === 'confirmada' && !empty($vig['fecha_confirmada'])) {
+            $vigenteTxt = date('d/m/Y H:i', strtotime($vig['fecha_confirmada'])) . ', ya confirmada con el candidato';
+        } elseif (($vig['estatus'] ?? '') === 'pendiente') {
+            $vigenteTxt = date('d/m/Y H:i', strtotime($vig['opcion1'])) . ' o ' . date('d/m/Y H:i', strtotime($vig['opcion2']));
+        }
+        $nuevasTxt = date('d/m/Y H:i', strtotime($prop['opcion1'])) . ' o ' . date('d/m/Y H:i', strtotime($prop['opcion2']));
+
+        if ($decision === 'rechazar') {
+            if ($motivo === '') responder(false, 'Indica por qué no se aprueba el cambio: se le dice al jefe.');
+            $motivo = mb_substr($motivo, 0, 500);
+            $stmt = $conn->prepare(
+                "UPDATE citas SET estatus = 'no_aprobada', vobo_por = ?, vobo_fecha = NOW(), vobo_motivo = ?
+                  WHERE id = ? AND estatus = 'por_aprobar'"
+            );
+            $stmt->bind_param('isi', $noEmp, $motivo, $prop['id']);
+            $stmt->execute();
+            $ok = $stmt->affected_rows > 0; $stmt->close();
+            if (!$ok) responder(false, 'El cambio de fechas cambió; recarga e inténtalo de nuevo.');
+
+            notificarEvento($conn, 'cambio_fechas_no_aprobado', [
+                'destino_no_empleado' => (int)$c['no_empleado_solicitante'],
+                'id_candidato' => $id, 'id_vacante' => (int)$c['id_vacante'],
+                'titulo' => 'RRHH no aprobó tu cambio de fechas — ' . $c['nombre'],
+                'mensaje' => $c['folio'] . ' · ' . $motivo
+                    . ($vigenteTxt !== '' ? ' · sigue en pie: ' . $vigenteTxt : ''),
+                'url' => 'embed_solicitante.php',
+            ]);
+            responder(true, 'Cambio no aprobado; se le avisó al jefe. Sigue la fecha anterior.');
+        }
+
+        // Aprobar. Las fechas pudieron pasar mientras esperaban el VoBo.
+        if (strtotime($prop['opcion1']) <= time() || strtotime($prop['opcion2']) <= time()) {
+            responder(false, 'Alguna de las fechas que pidió el jefe ya pasó: no lo apruebes, para que proponga otras.');
+        }
+        // Primero se toma la propuesta (anti-carrera) y sólo entonces se cancela la
+        // vigente: al revés, un doble clic dejaría al candidato sin ninguna cita.
+        $stmt = $conn->prepare(
+            "UPDATE citas SET estatus = 'pendiente', vobo_por = ?, vobo_fecha = NOW()
+              WHERE id = ? AND estatus = 'por_aprobar'"
+        );
+        $stmt->bind_param('ii', $noEmp, $prop['id']);
+        $stmt->execute();
+        $ok = $stmt->affected_rows > 0; $stmt->close();
+        if (!$ok) responder(false, 'El cambio de fechas cambió; recarga e inténtalo de nuevo.');
+
+        $upd = $conn->prepare(
+            "UPDATE citas SET estatus = 'cancelada'
+              WHERE id_candidato = ? AND tipo = 'jefe' AND estatus IN ('pendiente','confirmada') AND id <> ?"
+        );
+        $upd->bind_param('ii', $id, $prop['id']); $upd->execute(); $upd->close();
+
+        // Ya confirmada: el candidato vuelve a estar pendiente de elegir fecha.
+        if ($c['estatus'] === 'entrevista_confirmada') {
+            $r = cambiarEstatusCandidato($conn, $id, 'aprobado_jefe', $noEmp,
+                'VoBo de RRHH al cambio de fechas del solicitante: se cancela la entrevista'
+                . (!empty($vig['fecha_confirmada']) ? ' confirmada para ' . date('d/m/Y H:i', strtotime($vig['fecha_confirmada'])) : '')
+                . '. Nuevas opciones: ' . $nuevasTxt . '.'
+                . (!empty($prop['notas']) ? ' Motivo: ' . $prop['notas'] : ''));
+            if (!$r['ok']) responder(false, $r['message']);
+        }
+
+        notificarEvento($conn, 'cambio_fechas_aprobado', [
+            'destino_no_empleado' => (int)$c['no_empleado_solicitante'],
+            'id_candidato' => $id, 'id_vacante' => (int)$c['id_vacante'],
+            'titulo' => 'RRHH dio el VoBo a tu cambio de fechas — ' . $c['nombre'],
+            'mensaje' => $c['folio'] . ' · nuevas opciones: ' . $nuevasTxt . '; RRHH confirmará con el candidato',
+            'url' => 'embed_solicitante.php',
+        ]);
+        responder(true, 'VoBo registrado. Ahora confirma con el candidato cuál de las fechas nuevas le queda.'
+            . (($vig['estatus'] ?? '') === 'confirmada' && !empty($vig['fecha_confirmada'])
+                ? ' Avísale que la entrevista del ' . date('d/m/Y H:i', strtotime($vig['fecha_confirmada'])) . ' se canceló.' : ''));
     }
 
     // 'registrar_resultado_entrevista' se movió a acciones_solicitante.php: el

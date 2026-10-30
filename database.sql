@@ -117,6 +117,9 @@ CREATE TABLE IF NOT EXISTS candidatos (
     cv_archivo   VARCHAR(100) NULL COMMENT 'nombre aleatorio en uploads/cv/',
     cv_nombre_original VARCHAR(255) NULL,
     cv_tamano    INT UNSIGNED NULL COMMENT 'bytes',
+    -- Retro 2026-10-29: «¿el jefe ya abrió el CV?». Lo marca descargar.php la
+    -- PRIMERA vez que lo abre el solicitante de la vacante; RRHH abriéndolo no cuenta.
+    cv_abierto_jefe DATETIME NULL COMMENT 'primera vez que el solicitante abrió el CV; NULL = sin abrir',
     estatus ENUM('aspirante','enviado_solicitante','aprobado_jefe',
                 'entrevista_confirmada','entrevistado',
                 'propuesta_enviada','propuesta_expirada','propuesta_aceptada',
@@ -131,6 +134,9 @@ CREATE TABLE IF NOT EXISTS candidatos (
     psicometrico_observaciones TEXT NULL COMMENT 'psicométrico: observaciones',
     etapa_descarte  VARCHAR(50) NULL COMMENT 'etapa en la que fue descartado',
     motivo_descarte TEXT NULL,
+    -- Retro 2026-10-29: un descartado sale solo de la pestaña del jefe al mes del
+    -- descarte; con «Ocultar» el jefe lo quita antes. Sólo aplica a descartados.
+    oculto_jefe DATETIME NULL COMMENT 'el jefe lo quitó de su pestaña antes del mes; NULL = no',
     nave    INT UNSIGNED NULL COMMENT 'id de mess_rrhh.nave (catálogo, sin FK); lo asigna RRHH, viaja al alta como SEDE',
     region  INT UNSIGNED NULL COMMENT 'id de mess_rrhh.region (catálogo, sin FK); asignación para el alta',
     -- La lista de herramientas se la pasa el JEFE a Almacén por su cuenta; SIVAC
@@ -174,6 +180,12 @@ CREATE TABLE IF NOT EXISTS candidatos_historial (
 -- notas = comentarios de quien agenda (contexto para el entrevistador); viajan
 --   en el correo de confirmación.
 -- duracion_aprox = NOT NULL (la app la inserta vacía si no se captura).
+--
+-- VoBo de los cambios del jefe (retro 2026-10-29): si ya hay una fecha VIGENTE
+-- (pendiente o confirmada), cambiarla no la toca: la propuesta nace 'por_aprobar'
+-- y RRHH le da el VoBo (la vigente se cancela y ésta pasa a 'pendiente') o la
+-- rechaza con motivo ('no_aprobada', y sigue la vigente). vobo_* dice quién y
+-- cuándo; en las citas anteriores a la regla va NULL.
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS citas (
     id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -182,14 +194,17 @@ CREATE TABLE IF NOT EXISTS citas (
                   COMMENT 'entrevista del jefe/solicitante (única agendada en el sistema)',
     opcion1       DATETIME NOT NULL,
     opcion2       DATETIME NOT NULL,
-    estatus       ENUM('pendiente','confirmada','realizada','cancelada','rechazada')
+    estatus       ENUM('pendiente','confirmada','realizada','cancelada','rechazada','por_aprobar','no_aprobada')
                   NOT NULL DEFAULT 'pendiente'
-                  COMMENT 'rechazada = el candidato no pudo en ninguna de las dos; el jefe propone otras',
+                  COMMENT 'rechazada = el candidato no pudo en ninguna; por_aprobar/no_aprobada = cambio del jefe esperando o sin VoBo de RRHH',
     opcion_confirmada TINYINT(1) NULL COMMENT '1 u 2',
     fecha_confirmada  DATETIME NULL COMMENT 'fecha/hora final de la entrevista',
     fecha_candidato   DATETIME NULL COMMENT 'otra fecha que pidió el candidato al rechazar las dos (opcional)',
     duracion_aprox VARCHAR(100) NOT NULL,
     confirmada_por    INT UNSIGNED NULL COMMENT 'RRHH que confirmó',
+    vobo_por      INT UNSIGNED NULL COMMENT 'RRHH que dio o negó el VoBo al cambio de fechas del jefe',
+    vobo_fecha    DATETIME NULL,
+    vobo_motivo   VARCHAR(500) NULL COMMENT 'por qué RRHH no aprobó el cambio',
     notas         TEXT NULL,
     fecha_creacion      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     fecha_actualizacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -197,6 +212,26 @@ CREATE TABLE IF NOT EXISTS citas (
     KEY idx_cita_candidato (id_candidato),
     KEY idx_cita_estado (estatus),
     CONSTRAINT fk_cita_candidato FOREIGN KEY (id_candidato)
+        REFERENCES candidatos (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ----------------------------------------------------------------------------
+-- Comentarios sobre el candidato, al estilo de los de ticketsBI (retro
+-- 2026-10-29). Los escriben RRHH y el jefe dueño de la vacante.
+-- es_interno = 1 → nota de RRHH que el jefe NO ve. Lo puede marcar sólo RRHH;
+--   lo que escribe el jefe siempre es para RRHH.
+-- Es por FICHA (postulación), no por persona: cada vacante tiene su jefe.
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS candidatos_comentarios (
+    id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    id_candidato  INT UNSIGNED NOT NULL,
+    no_empleado   INT UNSIGNED NOT NULL COMMENT 'quién lo escribió',
+    comentario    TEXT NOT NULL,
+    es_interno    TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1 = sólo RRHH',
+    fecha_creacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_coment_candidato (id_candidato),
+    CONSTRAINT fk_coment_candidato FOREIGN KEY (id_candidato)
         REFERENCES candidatos (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

@@ -152,6 +152,10 @@ en la campana del portal).
 | RRHH le asigna candidatos | el solicitante, uno por candidato | `embed_solicitante` |
 | El jefe aprueba el CV y da sus 2 fechas | RRHH que registró al candidato | `candidatos` |
 | El jefe descarta el CV | RRHH que registró al candidato | `candidatos` |
+| El jefe pide cambiar una fecha vigente | todo RRHH (da el VoBo) | `candidatos` |
+| RRHH da o niega el VoBo a ese cambio | el solicitante (con el motivo si lo niega) | `embed_solicitante` |
+| RRHH marca «No apto» a un candidato que ya tiene el jefe | el solicitante («pasa a RRHH para aclaración») | `embed_solicitante` |
+| RRHH comenta «para el jefe» / el jefe comenta | el solicitante / todo RRHH (con dedup) | `embed_solicitante` / `candidatos` |
 | RRHH confirma la fecha que eligió el candidato | el solicitante | `embed_solicitante` |
 | El jefe registra el resultado de su entrevista | RRHH que registró al candidato | `candidatos` |
 | RRHH registra la respuesta a la propuesta | el solicitante (aceptó / rechazó) | `contrataciones` |
@@ -237,10 +241,57 @@ hábil** (al menos un día hábil completo de aviso para que RRHH localice al
 candidato: viernes → martes) y con las dos opciones **en días distintos**.
 Reagendar exige **motivo**, salvo tras «Ninguna le queda»; ahí además la fecha que
 pidió el candidato pasa aunque no cumpla el aviso. Hábil = lunes a viernes: los
-feriados no se descuentan. Reagendar cancela la cita vigente y crea otra, así que
-`citas` es el historial de fechas: la ficha de RRHH lo pinta con quién propuso,
-con cuántos días hábiles de aviso (en rojo si fueron menos de uno) y si la cita
-cancelada ya estaba confirmada con el candidato.
+feriados no se descuentan.
+
+**VoBo de los cambios** (retro 2026-10-29): si ya hay una fecha **vigente**
+(cita `pendiente` o `confirmada`), el jefe no la cambia directo. Su propuesta
+nace `por_aprobar`, la vigente sigue en pie y su tarjeta dice «pendiente del VoBo
+de RRHH». RRHH tiene un **candado**: mientras el cambio espere, la fila no ofrece
+«Confirmar entrevista» (ni «Ninguna le queda») sino «VoBo cambio de fechas»:
+«Enterado» aplica el cambio (cancela la vigente; si estaba confirmada, el
+candidato vuelve a `aprobado_jefe`) y «No aprobar» lo rechaza con motivo
+(`no_aprobada`, sigue la vigente y el jefe ve el motivo). Tras un «no», el jefe ya
+no puede pedir otro cambio —su tarjeta pierde el botón y el servidor lo rechaza—
+mientras eso sea lo último que pasó con las fechas; si de verdad lo necesita, lo
+habla con RRHH en «Seguimiento». Lo destraba una cita nueva: hoy sólo la que el jefe
+propone tras un «Ninguna le queda» de RRHH, que cabe si la vigente seguía pendiente;
+**con la entrevista ya confirmada no hay salida en el sistema** (el «Reprogramar» de
+RRHH está apagado en `js/candidatos.js`). Si el jefe vuelve a
+cambiar antes del VoBo, se corrige esa misma propuesta. Tras «Ninguna le queda» no
+hay vigente y sus fechas nuevas entran directo. Como `por_aprobar` y
+`no_aprobada` no son «la cita» del candidato, **toda consulta de la última cita
+los excluye**.
+
+Reagendar con VoBo cancela la cita vigente y crea otra, así que `citas` es el
+historial de fechas: la ficha de RRHH **y el «Seguimiento» del jefe** lo pintan
+igual (`sivacItemsCitas()` en `js/funciones.js`) con quién propuso, con cuántos
+días hábiles de aviso (en rojo si fueron menos de uno), quién dio o negó el VoBo
+y si la cita cancelada ya estaba confirmada con el candidato. El jefe ve además la
+bitácora de RRHH (`candidatos_historial`).
+
+**Comentarios** (retro 2026-10-29, como los de ticketsBI): un hilo por ficha en
+`candidatos_comentarios`. RRHH elige **Interno** (sólo RRHH; arranca así para que
+nada le llegue al jefe por descuido) o **Para el jefe**; lo que escribe el jefe
+lo ve RRHH. El servidor no le manda al jefe las notas internas.
+
+**CV abierto**: `candidatos.cv_abierto_jefe` guarda la primera vez que el jefe
+dueño de la vacante abrió el CV (lo marca `descargar.php`, sólo si el archivo sí
+se entregó; RRHH abriéndolo no cuenta). La tarjeta del jefe dice «CV sin abrir» y
+la tabla de RRHH, si ya lo abrió y cuándo.
+
+**«No apto» de RRHH en la tarjeta del jefe**: el jefe ve el veredicto de la
+entrevista de RRHH. Un «No apto» no descarta ni bloquea, pero la tarjeta y los
+diálogos de aprobar dicen «No apto: pasa a RRHH para aclaración»
+(`SIVAC_MSJ_NO_APTO`), y si RRHH lo marca con el proceso vivo le llega a su campana.
+
+**Lo descartado sale de la pestaña del jefe al mes**: un candidato descartado
+(fechado por su transición en `candidatos_historial`) y una vacante cancelada o
+rechazada (por `vacantes.fecha_actualizacion`) dejan de listarse en
+`embed_solicitante` un mes después (`SIVAC_SQL_DESCARTE_OCULTO` y
+`SIVAC_SQL_VACANTE_DESCARTE_VIEJO`). Al candidato descartado el jefe lo puede
+quitar antes con **Ocultar** (`candidatos.oculto_jefe`; sin vuelta atrás desde su
+pestaña). No se borra nada, y las vistas de RRHH y el dashboard siguen
+mostrándolos y contándolos.
 
 La entrevista de **RRHH** ya no se agenda: ocurre fuera del sistema y queda como
 constancia en `candidatos.entrevista_rrhh_fecha` / `entrevista_rrhh_resultado`.
@@ -249,7 +300,8 @@ candidato al jefe.
 
 Reglas duras (backend): no se envía candidato al jefe sin CV **ni sin la
 constancia de la entrevista de RRHH**; agendar exige 2 fechas en días distintos
-desde el 2.º día hábil;
+desde el 2.º día hábil; no se confirma una fecha con el candidato mientras el jefe
+tenga un cambio esperando VoBo;
 completar alta exige fecha de ingreso + reglamento enviado + documentos
 obligatorios **validados** por RRHH **+ los datos del alta completos**; las
 propuestas vencidas expiran automáticamente (lazy) al cargar cierre/dashboard.

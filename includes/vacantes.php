@@ -8,6 +8,12 @@
  * Así el folio y la validación del puesto no se bifurcan entre ambas.
  */
 
+// Cancelada o rechazada hace más de un mes (retro 2026-10-29): sale de la pestaña
+// del jefe. Fragmento SQL sobre el alias `v`. No hay columna con la fecha de la
+// cancelación; fecha_actualizacion la da porque una vacante muerta ya no se edita.
+const SIVAC_SQL_VACANTE_DESCARTE_VIEJO = "(v.estatus IN ('cancelada','rechazada')
+        AND v.fecha_actualizacion < NOW() - INTERVAL 1 MONTH)";
+
 if (!function_exists('generarFolioVacante')) {
 
     /**

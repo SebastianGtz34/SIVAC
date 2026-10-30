@@ -53,12 +53,17 @@ if ($tipo === 'cv') {
         exit;
     }
     // Permiso: RRHH o solicitante dueño del candidato.
-    if (!$esRRHH && !esSolicitanteDeCandidato($conn, $noEmp, $id)) {
+    $esSolicitante = esSolicitanteDeCandidato($conn, $noEmp, $id);
+    if (!$esRRHH && !$esSolicitante) {
         http_response_code(403);
         header('Content-Type: text/plain; charset=utf-8');
         echo 'Sin permiso para descargar este archivo.';
         exit;
     }
+    // «CV abierto» (retro 2026-10-29): la primera vez que lo abre el jefe dueño
+    // de la vacante. Que lo abra RRHH no cuenta: lo que se quiere saber es si el
+    // jefe ya lo revisó. Se marca abajo, sólo si el archivo sí se entrega.
+    $marcarCvAbierto = $esSolicitante;
     $rutaBase = SIVAC_DIR_CV;
     $archivo  = $row['cv_archivo'];
     $original = $row['cv_nombre_original'] ?: 'cv.pdf';
@@ -114,6 +119,16 @@ if (!is_file($ruta)) {
     exit;
 }
 
+// fecha_actualizacion se deja como estaba a propósito: abrir el CV no es un cambio
+// de la ficha, y el KPI «Contratados del mes» del dashboard (inicio.php) la lee.
+if (!empty($marcarCvAbierto)) {
+    $upd = $conn->prepare(
+        "UPDATE candidatos SET cv_abierto_jefe = NOW(), fecha_actualizacion = fecha_actualizacion
+          WHERE id = ? AND cv_abierto_jefe IS NULL"
+    );
+    if ($upd) { $upd->bind_param('i', $id); $upd->execute(); $upd->close(); }
+}
+
 // Nombre de descarga saneado (sin comillas ni saltos que rompan el header).
 $nombreDescarga = preg_replace('/[^\w.\- ]+/u', '_', $original);
 
@@ -122,5 +137,8 @@ header('Content-Length: ' . filesize($ruta));
 header('Content-Disposition: inline; filename="' . $nombreDescarga . '"');
 header('X-Content-Type-Options: nosniff');
 header('Cache-Control: private, no-store');
+// Un HEAD sólo pregunta si el archivo se entrega (la tarjeta del jefe lo usa para
+// quitar «CV sin abrir»): no hace falta mandar el PDF.
+if ($_SERVER['REQUEST_METHOD'] === 'HEAD') exit;
 readfile($ruta);
 exit;

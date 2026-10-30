@@ -503,6 +503,17 @@ table.dataTable tbody tr { background: var(--card-bg); }
 }
 .timeline .t-fecha { font-size: .75rem; color: var(--text-muted); }
 
+/* ===== Comentarios de la ficha (como los de ticketsBI) ===== */
+.coment-lista { max-height: 320px; overflow-y: auto; margin-bottom: .75rem; }
+.coment {
+    max-width: 85%; margin-bottom: .5rem; padding: .5rem .75rem; border-radius: .6rem;
+    background: var(--card-soft); border: 1px solid var(--border); font-size: .875rem;
+    overflow-wrap: anywhere;
+}
+.coment.mio { margin-left: auto; background: var(--accent-soft); }
+.coment.interno { border-color: var(--warning); border-style: dashed; }
+.coment-meta { font-size: .72rem; color: var(--text-muted); margin-bottom: .15rem; }
+
 /* ===== Embeds (sin sidebar) ===== */
 body.embed { background: transparent; padding: 1rem; }
 body.embed .card { margin-bottom: 1rem; }

@@ -213,6 +213,142 @@ function badgeestatusVacante(estatus, label) {
     return '<span class="badge badge-estatus badge-vac-' + escHtml(estatus) + '">' + escHtml(label || estatus) + '</span>';
 }
 
+/* ── Historial y comentarios de la ficha ──
+   Los pintan la ficha de RRHH (js/candidatos.js) y el seguimiento del jefe
+   (embed_solicitante.php). Viven aquí para que las dos vistas digan lo mismo
+   (retro 2026-10-29: el jefe también ve el historial). */
+
+/** Bitácora (candidatos_historial) → elementos del timeline {key, html}.
+ *  `etiquetas` = el mapa de estatus de la vista (RRHH o jefe). */
+function sivacItemsHistorial(historial, etiquetas) {
+    etiquetas = etiquetas || {};
+    return (historial || []).map(function (x) {
+        var actor = (String(x.no_empleado) === '0') ? 'Sistema'
+                  : (x.actor_nombre || ('#' + x.no_empleado));
+        var cambio = x.estatus_anterior === x.estatus_nuevo
+            ? (etiquetas[x.estatus_nuevo] || x.estatus_nuevo)
+            : (etiquetas[x.estatus_anterior] || x.estatus_anterior) + ' → ' + (etiquetas[x.estatus_nuevo] || x.estatus_nuevo);
+        return {
+            key: x.fecha_creacion,
+            html: '<li><div class="t-fecha">' + formatearFecha(x.fecha_creacion) + ' · ' + escHtml(actor) + '</div>'
+                + escHtml(cambio)
+                + (x.comentario ? '<div class="text-muted small">' + escHtml(x.comentario) + '</div>' : '') + '</li>'
+        };
+    });
+}
+
+/**
+ * Fechas de la entrevista del jefe → elementos del timeline {key, html}.
+ * `citas` viene de sivacHistorialCitas() (includes/citas.php), de la más nueva a
+ * la más vieja. `estatusCandidato` sirve para decir que un cambio que se quedó
+ * esperando VoBo ya no lo va a tener (el proceso siguió con la fecha vigente).
+ */
+function sivacItemsCitas(citas, estatusCandidato) {
+    var items = [];
+    var vivo = estatusCandidato === 'aprobado_jefe' || estatusCandidato === 'entrevista_confirmada';
+    var vigente = null;  // la última que llegó a estar en vigor: los cambios sin VoBo no cuentan
+    (citas || []).slice().reverse().forEach(function (ci) {
+        var esCambio = ci.estatus === 'por_aprobar' || ci.estatus === 'no_aprobada' || !!ci.vobo_fecha;
+        var accion = !vigente ? 'Propuso fechas de entrevista'
+                   : vigente.estatus === 'rechazada' ? 'Propuso nuevas fechas (el candidato no pudo en las anteriores)'
+                   : esCambio ? 'Pidió cambiar las fechas'
+                   : 'Reagendó la entrevista';
+        var estado;
+        if (ci.estatus === 'pendiente') {
+            estado = escHtml('Pendiente de confirmar con el candidato.');
+        } else if (ci.estatus === 'confirmada') {
+            estado = escHtml('Confirmada' + (ci.confirmada_por_nombre ? ' por ' + ci.confirmada_por_nombre : '')
+                + ': ' + formatearFecha(ci.fecha_confirmada) + '.');
+        } else if (ci.estatus === 'realizada') {
+            estado = escHtml('Realizada el ' + formatearFecha(ci.fecha_confirmada) + '.');
+        } else if (ci.estatus === 'rechazada') {
+            estado = escHtml('El candidato no pudo en ninguna'
+                + (ci.fecha_candidato ? '; disponibilidad del candidato: ' + formatearFecha(ci.fecha_candidato) : '') + '.');
+        } else if (ci.estatus === 'por_aprobar') {
+            estado = vivo
+                ? '<strong class="text-warning">' + escHtml('Esperando el VoBo de RRHH; mientras tanto sigue la fecha anterior.') + '</strong>'
+                : escHtml('Se quedó sin VoBo: el proceso siguió con la fecha anterior.');
+        } else if (ci.estatus === 'no_aprobada') {
+            estado = '<strong class="text-danger">' + escHtml('RRHH no lo aprobó'
+                + (ci.vobo_por_nombre ? ' (' + ci.vobo_por_nombre + ', ' + formatearFecha(ci.vobo_fecha) + ')' : '')
+                + ': ' + (ci.vobo_motivo || 'sin motivo') + '.') + '</strong> ' + escHtml('Siguió la fecha anterior.');
+        } else {
+            // Cancelada. Si ya tenía fecha confirmada, RRHH ya se la había dado
+            // al candidato: es lo que hay que poder demostrar.
+            estado = ci.fecha_confirmada
+                ? '<strong class="text-danger">' + escHtml('Ya estaba confirmada con el candidato para el '
+                    + formatearFecha(ci.fecha_confirmada) + '; se canceló al reagendar.') + '</strong>'
+                : escHtml('Reemplazada por la siguiente propuesta.');
+        }
+        // El enterado de RRHH (VoBo) de un cambio que sí se aplicó.
+        var vobo = (ci.vobo_fecha && ci.estatus !== 'no_aprobada')
+            ? '<div class="small text-success"><i class="fas fa-check-circle mr-1"></i>'
+                + escHtml('Enterado (VoBo) de RRHH: ' + (ci.vobo_por_nombre || 'RRHH') + ' · ' + formatearFecha(ci.vobo_fecha)) + '</div>'
+            : '';
+        var aviso = '';
+        if (ci.dias_aviso !== null && ci.dias_aviso !== undefined) {
+            var txtAviso = 'Aviso: ' + ci.dias_aviso + (Number(ci.dias_aviso) === 1 ? ' día hábil' : ' días hábiles');
+            aviso = ' · ' + (String(ci.aviso_corto) === '1'
+                ? '<strong class="text-danger">' + escHtml(txtAviso) + '</strong>'
+                : '<span class="text-muted">' + escHtml(txtAviso) + '</span>');
+        }
+        items.push({
+            key: ci.fecha_creacion,
+            html: '<li><div class="t-fecha">' + formatearFecha(ci.fecha_creacion) + ' · '
+                + escHtml(ci.solicitante_nombre || 'Solicitante') + '</div>'
+                + escHtml(accion + ': ' + formatearFecha(ci.opcion1) + ' o ' + formatearFecha(ci.opcion2)) + aviso
+                + '<div class="small">' + estado + '</div>' + vobo
+                + (ci.notas ? '<div class="text-muted small">' + escHtml(ci.notas) + '</div>' : '') + '</li>'
+        });
+        if (ci.estatus !== 'por_aprobar' && ci.estatus !== 'no_aprobada') vigente = ci;
+    });
+    return items;
+}
+
+/** Elementos {key, html} → <ul class="timeline">, lo más reciente arriba. Las llaves
+ *  son 'YYYY-MM-DD HH:MM:SS': la comparación de texto coincide con la cronológica. */
+function sivacPintarTimeline(items) {
+    items = (items || []).slice().sort(function (a, b) { return a.key < b.key ? 1 : (a.key > b.key ? -1 : 0); });
+    if (!items.length) return '<p class="text-muted small">Sin movimientos todavía.</p>';
+    return '<ul class="timeline">' + items.map(function (it) { return it.html; }).join('') + '</ul>';
+}
+
+/** Hilo de comentarios, del más viejo al más nuevo (como los de ticketsBI).
+ *  Las notas internas sólo llegan aquí en la vista de RRHH: el servidor no se las
+ *  manda al jefe. */
+function sivacHtmlComentarios(comentarios) {
+    if (!comentarios || !comentarios.length) {
+        return '<p class="text-muted small mb-2">Sin comentarios todavía.</p>';
+    }
+    var yo = String(miNoEmpleado());
+    return '<div class="coment-lista">' + comentarios.map(function (c) {
+        var interno = String(c.es_interno) === '1';
+        var mio = String(c.no_empleado) === yo;
+        return '<div class="coment' + (mio ? ' mio' : '') + (interno ? ' interno' : '') + '">'
+            + '<div class="coment-meta">' + escHtml(c.nombre) + ' · ' + formatearFecha(c.fecha_creacion)
+            + (interno ? ' <span class="badge badge-warning"><i class="fas fa-lock mr-1"></i>Interno</span>' : '')
+            + '</div>' + escHtml(c.comentario).replace(/\n/g, '<br>') + '</div>';
+    }).join('') + '</div>';
+}
+
+/** Formulario para comentar. Con `conInterno` (RRHH) se elige si es nota interna
+ *  o para el jefe; arranca en «Interno» para que nada le llegue al jefe por descuido. */
+function sivacFormComentario(conInterno) {
+    return '<div class="coment-form">'
+        + '<textarea class="form-control form-control-sm mb-2 txtComentario" rows="2" maxlength="2000" placeholder="'
+        + (conInterno ? 'Escribe un comentario…' : 'Escribe un comentario para RRHH…') + '"></textarea>'
+        + '<div class="d-flex align-items-center justify-content-between">'
+        + (conInterno
+            ? '<div class="btn-group btn-group-sm btn-group-toggle grupoInterno" data-toggle="buttons">'
+                + '<label class="btn btn-outline-warning active"><input type="radio" name="coment_interno" value="1" checked>'
+                + '<i class="fas fa-lock mr-1"></i>Interno (sólo RRHH)</label>'
+                + '<label class="btn btn-outline-primary"><input type="radio" name="coment_interno" value="0">'
+                + '<i class="fas fa-user-tie mr-1"></i>Para el jefe</label></div>'
+            : '<span></span>')
+        + '<button type="button" class="btn btn-sm btn-primary btnComentar"><i class="fas fa-paper-plane mr-1"></i>Enviar</button>'
+        + '</div></div>';
+}
+
 /** Idioma es-MX local para DataTables (cero CDN). */
 function dtIdioma() {
     return { url: 'vendor/datatables/i18n/es-MX.json' };

@@ -17,6 +17,22 @@
  * que ya entregó no se le vuelve a pedir porque se postule a otra vacante.
  */
 
+// Lo que se le dice al jefe de un candidato «No apto» en la entrevista de RRHH
+// (retro 2026-10-29), en su campana y en su tarjeta. Desde que el candidato le
+// llega al jefe en cuanto se registra, la constancia puede capturarse después y
+// un «No apto» llegarle: no descarta a nadie, pero el jefe lo habla con RRHH.
+const SIVAC_MSJ_NO_APTO = 'No apto: pasa a RRHH para aclaración';
+
+// Descartado que ya no sale en la pestaña del jefe (retro 2026-10-29): el que él
+// quitó con «Ocultar» (oculto_jefe) o, si no, al mes del descarte. Fragmento SQL
+// sobre el alias `c`. El descarte se fecha con su transición en la bitácora, y no
+// con fecha_actualizacion, que se mueve con cualquier edición de RRHH; ésta sólo
+// queda de respaldo para una ficha sin esa fila.
+const SIVAC_SQL_DESCARTE_OCULTO = "(c.estatus = 'descartado' AND (c.oculto_jefe IS NOT NULL OR COALESCE(
+        (SELECT MAX(h.fecha_creacion) FROM candidatos_historial h
+          WHERE h.id_candidato = c.id AND h.estatus_nuevo = 'descartado'),
+        c.fecha_actualizacion) < NOW() - INTERVAL 1 MONTH))";
+
 if (!function_exists('sivacIdPersona')) {
 
     /**
@@ -96,5 +112,28 @@ if (!function_exists('sivacIdPersona')) {
         $ok = $stmt->get_result()->num_rows > 0;
         $stmt->close();
         return $ok;
+    }
+
+    /**
+     * Bitácora de la ficha (candidatos_historial), de lo más nuevo a lo más viejo,
+     * con el nombre del actor resuelto (no_empleado = 0 es el sistema). La leen la
+     * ficha de RRHH y, desde la retro 2026-10-29, el seguimiento del jefe.
+     * Devuelve null si la consulta falla, para que el llamador diga qué pasó.
+     */
+    function sivacHistorialCandidato(mysqli $conn, int $idCandidato): ?array {
+        $stmt = $conn->prepare(
+            "SELECT h.estatus_anterior, h.estatus_nuevo, h.no_empleado, h.comentario, h.fecha_creacion,
+                    u.nombre AS actor_nombre
+             FROM candidatos_historial h
+             LEFT JOIN mess_rrhh.usuarios u ON u.noEmpleado = h.no_empleado
+             WHERE h.id_candidato = ? ORDER BY h.id DESC"
+        );
+        if (!$stmt) return null;
+        $stmt->bind_param('i', $idCandidato);
+        $stmt->execute();
+        $hist = []; $rh = $stmt->get_result();
+        while ($r = $rh->fetch_assoc()) $hist[] = $r;
+        $stmt->close();
+        return $hist;
     }
 }
