@@ -7,6 +7,7 @@
 require_once 'conn.php';
 require_once 'auth.php';
 require_once 'includes/assets.php';
+require_once 'includes/candidatos.php';   // SIVAC_MSJ_NO_APTO
 $noEmpSesion = requiereSesionPage();
 $embed = true;
 // Quien llega a esta pestaña puede levantar su requisición (ver
@@ -768,6 +769,19 @@ $nombreSesion = $datosSesion['nombre'] ?? ('empleado #' . $noEmpSesion);
 
 <?php endif; ?>
 
+<!-- Seguimiento del candidato (retro 2026-10-29): comentarios con RRHH, su
+     versión del historial de fechas y la bitácora de RRHH. Lo pinta el JS con
+     las mismas funciones que la ficha de RRHH (js/funciones.js). -->
+<div class="modal fade" id="modalSeguimiento" tabindex="-1" role="dialog">
+  <div class="modal-dialog modal-lg" role="document"><div class="modal-content">
+    <div class="modal-header">
+      <h5 class="modal-title" id="segTitulo">Seguimiento</h5>
+      <button type="button" class="close" data-dismiss="modal">&times;</button>
+    </div>
+    <div class="modal-body" id="segBody"></div>
+  </div></div>
+</div>
+
 <script src="vendor/jquery/jquery.min.js"></script>
 <script src="vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
 <script src="vendor/sweetalert2/sweetalert2.all.min.js"></script>
@@ -780,6 +794,7 @@ $(function () {
     var estatusS_VAC = window.SIVAC_estatusS_VAC || {};
     var puedeSolicitar = <?= $puedeSolicitar ? 'true' : 'false' ?>;
     var NOMBRE_SESION = <?= json_encode($nombreSesion, JSON_UNESCAPED_UNICODE) ?>;
+    var MSJ_NO_APTO = <?= json_encode(SIVAC_MSJ_NO_APTO, JSON_UNESCAPED_UNICODE) ?>;
     var candidatosData = [];   // caché de mis_candidatos (se filtra por vacante)
     var fechaMinima = '', fechaMinimaTxt = '';  // primera fecha de entrevista permitida (viene con mis_candidatos)
     var vacSel = 0;            // vacante seleccionada (master-detalle)
@@ -803,10 +818,14 @@ $(function () {
             // para que se pueda comparar contra el dueño real de la vacante.
             if (!res.data.length) {
                 hayVacantes = false;
+                // Las canceladas o rechazadas hace más de un mes no se listan: si sólo
+                // había de ésas, «todavía no hay ninguna» sería falso.
                 $c.html('<div class="col-12"><div class="alert alert-info mb-0 small">'
                     + '<i class="fas fa-info-circle mr-1"></i>'
-                    + 'Todavía no hay ninguna vacante a nombre de <strong>'
-                    + escHtml(NOMBRE_SESION) + '</strong>.'
+                    + (Number(res.ocultas) > 0
+                        ? 'No tienes vacantes activas a nombre de <strong>' + escHtml(NOMBRE_SESION) + '</strong>: '
+                            + 'las canceladas o rechazadas hace más de un mes ya no se muestran.'
+                        : 'Todavía no hay ninguna vacante a nombre de <strong>' + escHtml(NOMBRE_SESION) + '</strong>.')
                     + '<br>Si RRHH ya abrió una para tu área, pídeles que te registren como '
                     + '<strong>solicitante</strong>: sólo así aparece aquí.'
                     + (puedeSolicitar
@@ -896,15 +915,23 @@ $(function () {
         lista.forEach(function (c) {
                 var esDescartado = c.estatus === 'descartado';
 
-                // Constancia de la entrevista de RRHH (el filtro previo). No se
-                // muestra el veredicto: al jefe solo le llegan los aptos.
+                // Constancia de la entrevista de RRHH (el filtro previo), CON su
+                // veredicto (retro 2026-10-29): desde que el candidato le llega al jefe
+                // al registrarse, la constancia puede capturarse después y un «No
+                // apto» llegar aquí. No descarta a nadie, pero el jefe lo habla con RRHH.
+                var rrhhRes = c.entrevista_rrhh_resultado === 'apto' ? ' · <span class="text-success">Apto</span>'
+                            : c.entrevista_rrhh_resultado === 'no_apto' ? ' · <span class="text-danger font-weight-bold">No apto</span>' : '';
                 var rrhh = '<div class="small"><i class="fas fa-user-check text-success mr-1"></i>'
                     + '<strong>Entrevista RRHH:</strong> '
                     + (c.entrevista_rrhh_fecha ? formatearSoloFecha(c.entrevista_rrhh_fecha) : 'sin fecha')
-                    + '</div>';
+                    + rrhhRes + '</div>';
                 if (c.entrevista_rrhh_observaciones) {
                     rrhh += '<div class="small text-muted"><i class="fas fa-comment-dots mr-1"></i>'
                         + escHtml(c.entrevista_rrhh_observaciones) + '</div>';
+                }
+                if (c.entrevista_rrhh_resultado === 'no_apto' && !esDescartado) {
+                    rrhh += '<div class="alert alert-danger small py-1 px-2 my-1">'
+                        + '<i class="fas fa-exclamation-triangle mr-1"></i>' + escHtml(MSJ_NO_APTO) + '.</div>';
                 }
 
                 // Psicométrico (informativo): a diferencia de la constancia de RRHH,
@@ -933,7 +960,7 @@ $(function () {
                 if (sinFecha) {
                     miEnt = '<div class="alert alert-warning small py-2 mb-0">'
                         + '<i class="fas fa-calendar-times mr-1"></i><strong>El candidato no puede en ninguna de tus fechas.</strong>'
-                        + (c.cita_fecha_candidato ? '<br>Pide: <strong>' + formatearFecha(c.cita_fecha_candidato) + '</strong>' : '')
+                        + (c.cita_fecha_candidato ? '<br>Disponibilidad del candidato: <strong>' + formatearFecha(c.cita_fecha_candidato) + '</strong>' : '')
                         + '<br>Propón nuevas fechas de entrevista.</div>';
                 }
                 // Cuántas veces se movió: el jefe ve lo mismo que RRHH en la ficha.
@@ -942,6 +969,23 @@ $(function () {
                     miEnt += '<div class="small text-muted"><i class="fas fa-history mr-1"></i>Reagendada '
                         + nReag + (nReag === 1 ? ' vez' : ' veces') + '</div>';
                 }
+                // Su cambio de fechas espera el VoBo de RRHH, o RRHH no lo aprobó
+                // (retro 2026-10-29). Mientras espera, la fecha vigente y el cambio van
+                // juntos en el mismo cuadro: se leen como una sola cosa.
+                var enEntrevista = c.estatus === 'aprobado_jefe' || c.estatus === 'entrevista_confirmada';
+                // Con el «no» de RRHH como lo último que pasó, la fecha vigente se queda:
+                // no se le ofrece otro cambio (el servidor tampoco lo acepta).
+                var cambioNegado = enEntrevista && !sinFecha && !!c.cita_no_aprobada_motivo;
+                if (enEntrevista && c.cita_por_aprobar) {
+                    miEnt = '<div class="alert alert-info small py-1 px-2 my-1">' + miEnt
+                        + '<div class="mt-1"><i class="fas fa-hourglass-half mr-1"></i>'
+                        + 'Tu cambio a <strong>' + escHtml(c.cita_por_aprobar) + '</strong> está <strong>pendiente del VoBo de RRHH</strong>. '
+                        + 'Mientras tanto sigue en pie la fecha anterior.</div></div>';
+                } else if (cambioNegado) {
+                    miEnt += '<div class="small text-danger"><i class="fas fa-times-circle mr-1"></i>'
+                        + 'RRHH no aprobó tu cambio de fechas: ' + escHtml(c.cita_no_aprobada_motivo.replace(/[.\s]+$/, ''))
+                        + '. Si necesitas cambiarla, escríbele a RRHH en «Seguimiento».</div>';
+                }
 
                 // Motivo del descarte (sólo en tarjetas descartadas).
                 var motivo = (esDescartado && c.motivo_descarte)
@@ -949,8 +993,16 @@ $(function () {
                     : '';
 
                 var cv = c.cv_archivo
-                    ? '<a href="descargar.php?tipo=cv&id=' + c.id + '" target="_blank" class="btn btn-sm btn-primary mr-2"><i class="fas fa-folder-open mr-1"></i>Ver CV</a>'
+                    ? '<a href="descargar.php?tipo=cv&id=' + c.id + '" target="_blank" class="btn btn-sm btn-primary mr-2 lnkCv" data-id="' + c.id + '"><i class="fas fa-folder-open mr-1"></i>Ver CV</a>'
                     : '';
+                // Identificador de CV abierto (retro 2026-10-29): como un correo sin
+                // leer, el que todavía no abre se marca en la esquina de la tarjeta.
+                var cvSinAbrir = c.cv_archivo && !c.cv_abierto_jefe;
+                // Historial y comentarios con RRHH; el número = comentarios en el hilo.
+                var nCom = parseInt(c.comentarios, 10) || 0;
+                var seg = '<button class="btn btn-sm btn-outline-secondary btnSeguimiento mr-1" data-id="' + c.id + '">'
+                    + '<i class="fas fa-history mr-1"></i>Seguimiento'
+                    + (nCom > 0 ? ' <span class="badge badge-primary">' + nCom + '</span>' : '') + '</button>';
                 // Acciones según la etapa: aprobar/descartar el CV cuando está por
                 // revisar; aprobar/descartar el resultado de TU entrevista cuando ya
                 // se confirmó el horario (punto 15: lo captura el jefe).
@@ -960,27 +1012,36 @@ $(function () {
                         + '<button class="btn btn-sm btn-outline-danger btnDescartar" data-id="' + c.id + '"><i class="fas fa-times mr-1"></i>Descartar</button>';
                 } else if (c.estatus === 'aprobado_jefe') {
                     // Todavía sin fecha cerrada: lo único que puede hacer el jefe es
-                    // cambiar las opciones que ofreció.
+                    // cambiar las opciones que ofreció (salvo que RRHH ya le dijo que no).
                     acc = sinFecha
                         ? '<button class="btn btn-sm btn-primary btnReagendar" data-id="' + c.id + '"'
                             + ' data-pedida="' + escHtml(c.cita_fecha_candidato || '') + '"><i class="fas fa-calendar-plus mr-1"></i>Proponer nuevas fechas</button>'
+                        : cambioNegado ? ''
                         : '<button class="btn btn-sm btn-outline-primary btnReagendar" data-id="' + c.id + '"><i class="fas fa-calendar-alt mr-1"></i>Cambiar fechas</button>';
                 } else if (c.estatus === 'entrevista_confirmada') {
                     acc = '<button class="btn btn-sm btn-success btnResultadoOk mr-1" data-id="' + c.id + '"><i class="fas fa-check mr-1"></i>Aprobó</button>'
                         + '<button class="btn btn-sm btn-outline-danger btnResultadoNo mr-1" data-id="' + c.id + '"><i class="fas fa-times mr-1"></i>Descartó</button>'
-                        + '<button class="btn btn-sm btn-outline-primary btnReagendar" data-id="' + c.id + '" data-confirmada="1"><i class="fas fa-calendar-alt mr-1"></i>Reagendar entrevista</button>';
+                        + (cambioNegado ? ''
+                            : '<button class="btn btn-sm btn-outline-primary btnReagendar" data-id="' + c.id + '" data-confirmada="1"><i class="fas fa-calendar-alt mr-1"></i>Reagendar entrevista</button>');
+                } else if (esDescartado) {
+                    // Sale solo al mes del descarte; con esto, antes (retro 2026-10-29).
+                    acc = '<button class="btn btn-sm btn-outline-secondary btnOcultar" data-id="' + c.id + '"'
+                        + ' title="Quitarlo de tu pestaña ya; si no, sale solo al mes del descarte">'
+                        + '<i class="fas fa-eye-slash mr-1"></i>Ocultar</button>';
                 }
 
                 $c.append(
                     '<div class="col-md-4 mb-3"><div class="card h-100 shadow-sm"' + (esDescartado ? ' style="opacity:.6"' : '') + '><div class="card-body d-flex flex-column">'
                     + '<div class="d-flex justify-content-between align-items-start mb-1">'
                     + '<span class="text-muted small">' + folioCandidato(c.id) + '</span>'
-                    + badgeestatusCandidato(c.estatus, estatusS[c.estatus] || c.estatus) + '</div>'
+                    + '<span class="text-right">'
+                    + (cvSinAbrir ? '<span class="badge badge-estatus badge-danger mr-1" title="Todavía no abres su CV"><i class="fas fa-eye-slash mr-1"></i>CV sin abrir</span>' : '')
+                    + badgeestatusCandidato(c.estatus, estatusS[c.estatus] || c.estatus) + '</span></div>'
                     + '<div class="fw-700" style="font-size:1.05rem">' + escHtml(c.nombre) + '</div>'
                     + '<div class="text-muted small mb-2">' + escHtml(c.folio) + ' · ' + escHtml(c.puesto) + '</div>'
                     + '<hr class="my-2">'
                     + rrhh + psico + miEnt + motivo
-                    + '<div class="mt-auto pt-3">' + cv + acc + '</div>'
+                    + '<div class="mt-auto pt-3">' + cv + seg + acc + '</div>'
                     + '</div></div></div>'
                 );
             });
@@ -1009,9 +1070,14 @@ $(function () {
         return '';
     }
 
-    // Reagendar: mismo diálogo de dos fechas que al aprobar. Si la entrevista ya
-    // estaba confirmada, el backend la cancela y devuelve al candidato a «pendiente
-    // de que elija fecha», así que se avisa aquí para que no sorprenda.
+    /** Candidato del caché por id (para los diálogos). */
+    function candidatoPorId(id) {
+        return candidatosData.filter(function (x) { return String(x.id) === String(id); })[0] || {};
+    }
+
+    // Reagendar: mismo diálogo de dos fechas que al aprobar. Si hay una fecha
+    // vigente, el cambio no se aplica solo: espera el VoBo de RRHH y mientras tanto
+    // sigue la vigente (retro 2026-10-29), así que se avisa aquí para que no sorprenda.
     $('#misCandidatos').on('click', '.btnReagendar', function () {
         var id = $(this).data('id');
         // Por atributo y no por el texto del botón: el texto es de la retro y cambia.
@@ -1020,6 +1086,7 @@ $(function () {
         // le queda, sólo agrega la segunda.
         var pedida = String($(this).data('pedida') || '');
         var sinFecha = $(this).is('[data-pedida]');
+        var porAprobar = candidatoPorId(id).cita_por_aprobar || '';
         Swal.fire({
             title: yaConfirmada ? 'Reagendar la entrevista' : (sinFecha ? 'Proponer nuevas fechas' : 'Cambiar las fechas'),
             didOpen: function () {
@@ -1031,9 +1098,12 @@ $(function () {
                 }
             },
             html: textoReglaFechas(true)
-                + (yaConfirmada
-                    ? '<p class="small text-warning mb-2">La fecha ya confirmada se cancelará y RRHH volverá a cuadrarla con el candidato.</p>'
-                    : '')
+                + (sinFecha ? ''
+                    : '<p class="small text-warning mb-2">El cambio queda <strong>pendiente del VoBo de RRHH</strong>; '
+                        + 'mientras tanto sigue en pie la fecha '
+                        + (yaConfirmada ? 'ya confirmada con el candidato' : 'actual') + '.'
+                        + (porAprobar ? ' Ya tienes un cambio esperando (' + escHtml(porAprobar) + '): lo que captures lo reemplaza.' : '')
+                        + '</p>')
                 + '<input type="datetime-local" id="sw_op1" class="swal2-input">'
                 + '<input type="datetime-local" id="sw_op2" class="swal2-input">'
                 // Tras un «ninguna le queda» el motivo es obvio; en cualquier otro
@@ -1066,6 +1136,8 @@ $(function () {
 
     $('#misCandidatos').on('click', '.btnAprobar', function () {
         var id = $(this).data('id');
+        // «No apto» de RRHH: no bloquea, pero se repite aquí, que es donde decide.
+        var noApto = candidatoPorId(id).entrevista_rrhh_resultado === 'no_apto';
         Swal.fire({
             title: 'Aprobar y proponer entrevista',
             didOpen: function () {
@@ -1074,7 +1146,11 @@ $(function () {
                     document.getElementById('sw_op2').min = fechaMinima;
                 }
             },
-            html: textoReglaFechas(false)
+            html: (noApto
+                    ? '<p class="small text-danger font-weight-bold mb-2"><i class="fas fa-exclamation-triangle mr-1"></i>'
+                        + escHtml(MSJ_NO_APTO) + '.</p>'
+                    : '')
+                + textoReglaFechas(false)
                 + '<input type="datetime-local" id="sw_op1" class="swal2-input">'
                 + '<input type="datetime-local" id="sw_op2" class="swal2-input">'
                 + '<textarea id="sw_notas" class="swal2-textarea" placeholder="Comentarios para RRHH (opcional)."></textarea>',
@@ -1184,9 +1260,14 @@ $(function () {
         // necesitar: se aprovecha para preguntarle por la lista de herramientas.
         // SIVAC no la guarda —se la pasa él a Almacén— pero sí registra si ya lo
         // hizo, y eso es lo que Almacén lee en el aviso del alta.
+        var noApto = candidatoPorId(id).entrevista_rrhh_resultado === 'no_apto';
         Swal.fire({
             title: '¿Aprobar tras la entrevista?',
-            html: '<textarea id="sw_res_notas" class="swal2-textarea" '
+            html: (noApto
+                    ? '<p class="small text-danger font-weight-bold mb-2"><i class="fas fa-exclamation-triangle mr-1"></i>'
+                        + escHtml(MSJ_NO_APTO) + '.</p>'
+                    : '')
+                + '<textarea id="sw_res_notas" class="swal2-textarea" '
                 + 'placeholder="Notas de la entrevista (opcional)."></textarea>'
                 + '<div style="text-align:left;margin:12px 4px 0;font-size:.9rem">'
                 + '<label style="cursor:pointer">'
@@ -1232,6 +1313,93 @@ $(function () {
                 if (res && res.success) { mostrarToast(res.message, 'success'); cargarVacantes(); cargarCandidatos(); }
                 else { mostrarToast((res && res.message) || 'Error.', 'error'); }
             });
+        });
+    });
+
+    // «Ocultar» un descartado: deja de salir en esta pestaña sin esperar al mes.
+    // Desde aquí no hay vuelta atrás; RRHH lo sigue viendo en su tabla.
+    $('#misCandidatos').on('click', '.btnOcultar', function () {
+        var id = $(this).data('id');
+        var c = candidatoPorId(id);
+        Swal.fire({
+            title: '¿Ocultar a ' + escHtml(c.nombre || 'este candidato') + '?',
+            html: '<p class="small mb-0">Deja de salir en tu pestaña desde ahora, sin esperar al mes del descarte. '
+                + 'No se puede deshacer desde aquí; RRHH lo sigue viendo.</p>',
+            icon: 'question', showCancelButton: true,
+            background: messColor('card-bg'), color: messColor('text'),
+            confirmButtonText: 'Ocultar', cancelButtonText: 'Cancelar'
+        }).then(function (r) {
+            if (!r.isConfirmed) return;
+            ajaxPost('acciones_solicitante.php', { accion: 'ocultar_descartado', id: id }, function (err, res) {
+                if (res && res.success) { mostrarToast(res.message, 'success'); cargarVacantes(); cargarCandidatos(); }
+                else { mostrarToast((res && res.message) || 'Error.', 'error'); }
+            });
+        });
+    });
+
+    // Al abrir el CV se quita la marca «CV sin abrir» sin esperar a recargar, pero
+    // sólo si el servidor lo entregó: se le pregunta con un HEAD a la misma URL. Si
+    // el archivo no está, descargar.php responde 404 y no marca nada, y la tarjeta
+    // no debe decir otra cosa (antes se quitaba de todos modos y volvía al recargar).
+    $('#misCandidatos').on('click', '.lnkCv', function () {
+        var c = candidatoPorId($(this).data('id'));
+        if (!c.id || c.cv_abierto_jefe) return;
+        $.ajax({ url: this.href, type: 'HEAD' }).done(function () {
+            c.cv_abierto_jefe = new Date().toISOString();
+            renderCandidatos();
+        });
+    });
+
+    // ── Seguimiento: comentarios con RRHH + historial (retro 2026-10-29) ──
+    // Su versión de los movimientos de fechas y la bitácora de RRHH, pintadas con
+    // las mismas funciones que la ficha de RRHH. Las notas internas de RRHH no
+    // llegan: el servidor no las manda.
+    function pintarSeguimiento(res) {
+        var c = res.data;
+        var items = sivacItemsHistorial(res.historial, estatusS)
+            .concat(sivacItemsCitas(res.citas, c.estatus));
+        if (c.cv_abierto_jefe) {
+            items.push({
+                key: c.cv_abierto_jefe,
+                html: '<li><div class="t-fecha">' + formatearFecha(c.cv_abierto_jefe) + ' · ' + escHtml(NOMBRE_SESION) + '</div>'
+                    + 'Abriste el CV por primera vez.</li>'
+            });
+        }
+        $('#segTitulo').text(c.nombre + ' — ' + c.folio);
+        $('#segBody').html(
+            '<h6>Comentarios con RRHH</h6><div id="comentSeg" data-id="' + c.id + '">'
+            + sivacHtmlComentarios(res.comentarios) + sivacFormComentario(false) + '</div>'
+            + '<h6 class="mt-4">Historial</h6>'
+            + '<p class="small text-muted mb-2">Tus propuestas y cambios de fechas, lo que hizo RRHH con ellos y la bitácora del proceso.</p>'
+            + sivacPintarTimeline(items)
+        );
+    }
+
+    $('#misCandidatos').on('click', '.btnSeguimiento', function () {
+        var id = $(this).data('id');
+        ajaxPost('acciones_solicitante.php', { accion: 'seguimiento', id: id }, function (err, res) {
+            if (!res || !res.success) { mostrarToast((res && res.message) || 'No se pudo cargar el seguimiento.', 'error'); return; }
+            pintarSeguimiento(res);
+            $('#modalSeguimiento').modal('show');
+        });
+    });
+
+    $('#segBody').on('click', '.btnComentar', function () {
+        var $box = $('#comentSeg');
+        var texto = $box.find('.txtComentario').val().trim();
+        if (!texto) { mostrarToast('Escribe el comentario.', 'warning'); return; }
+        var $btn = $(this).prop('disabled', true);
+        ajaxPost('acciones_solicitante.php', { accion: 'comentar', id: $box.data('id'), comentario: texto }, function (err, res) {
+            $btn.prop('disabled', false);
+            if (res && res.success) {
+                $box.children('.coment-lista, p.text-muted').remove();
+                $box.prepend(sivacHtmlComentarios(res.comentarios));
+                $box.find('.txtComentario').val('');
+                mostrarToast(res.message, 'success');
+                // El contador del botón de la tarjeta.
+                var c = candidatoPorId($box.data('id'));
+                if (c.id) { c.comentarios = (res.comentarios || []).length; renderCandidatos(); }
+            } else { mostrarToast((res && res.message) || 'No se pudo enviar el comentario.', 'error'); }
         });
     });
 

@@ -163,6 +163,55 @@ SELECT c.id, TRIM(CONCAT_WS(' ', c.nombre, c.apellidos)) AS nombre, c.estatus, v
    AND (c.entrevista_rrhh_fecha IS NULL OR IFNULL(TRIM(c.entrevista_rrhh_resultado),'') = '');
 ```
 
+### Retro 29-oct: VoBo de los cambios de fecha, comentarios y CV abierto
+Sin el `ALTER` de `citas`, **reagendar truena** (el estado `por_aprobar` no
+existe) y la ficha deja de pintar el historial de fechas; sin el de `candidatos`,
+la pestaña del jefe y la tabla de Candidatos no cargan (*Unknown column
+cv_abierto_jefe*); sin la tabla nueva, la ficha abre sin comentarios y comentar
+falla.
+
+```sql
+ALTER TABLE citas
+  MODIFY estatus ENUM('pendiente','confirmada','realizada','cancelada','rechazada','por_aprobar','no_aprobada')
+    NOT NULL DEFAULT 'pendiente'
+    COMMENT 'rechazada = el candidato no pudo en ninguna; por_aprobar/no_aprobada = cambio del jefe esperando o sin VoBo de RRHH',
+  ADD COLUMN vobo_por INT UNSIGNED NULL
+    COMMENT 'RRHH que dio o negó el VoBo al cambio de fechas del jefe' AFTER confirmada_por,
+  ADD COLUMN vobo_fecha DATETIME NULL AFTER vobo_por,
+  ADD COLUMN vobo_motivo VARCHAR(500) NULL
+    COMMENT 'por qué RRHH no aprobó el cambio' AFTER vobo_fecha;
+
+ALTER TABLE candidatos
+  ADD COLUMN cv_abierto_jefe DATETIME NULL
+    COMMENT 'primera vez que el solicitante abrió el CV; NULL = sin abrir' AFTER cv_tamano;
+
+CREATE TABLE IF NOT EXISTS candidatos_comentarios (
+    id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    id_candidato  INT UNSIGNED NOT NULL,
+    no_empleado   INT UNSIGNED NOT NULL COMMENT 'quién lo escribió',
+    comentario    TEXT NOT NULL,
+    es_interno    TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1 = sólo RRHH',
+    fecha_creacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_coment_candidato (id_candidato),
+    CONSTRAINT fk_coment_candidato FOREIGN KEY (id_candidato)
+        REFERENCES candidatos (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+ALTER TABLE candidatos
+  ADD COLUMN oculto_jefe DATETIME NULL
+    COMMENT 'el jefe lo quitó de su pestaña antes del mes; NULL = no' AFTER motivo_descarte;
+```
+
+El último `ALTER` (botón «Ocultar» de los descartados en la pestaña del jefe) va
+aparte porque se agregó después que los otros tres: si ésos ya se corrieron en
+algún lado, éste se corre solo. Sin él, la pestaña del jefe no carga (*Unknown
+column oculto_jefe*).
+
+Los CV que el jefe ya abrió antes de subir esto quedan como «sin abrir»: no
+había registro. Las citas anteriores quedan sin VoBo (`vobo_*` en NULL) y la
+ficha las sigue pintando como «Reagendó la entrevista».
+
 ### Validación de documentos (17-ago) — comprobar antes de descartarlo
 Estas columnas entraron con la retro de validación de documentos y **nunca se
 anotaron aquí**, así que no consta si se aplicaron en producción. Comprobar:

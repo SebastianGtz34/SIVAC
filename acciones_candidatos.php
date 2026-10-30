@@ -15,6 +15,7 @@ require_once 'includes/flujo.php';
 require_once 'includes/notificaciones.php';
 require_once 'includes/catalogos.php';
 require_once 'includes/citas.php';
+require_once 'includes/comentarios.php';
 
 // Detecta POST que excedió post_max_size antes de tocar $_POST.
 if (sivacPostDesbordado()) {
@@ -101,8 +102,9 @@ function vacanteDe(mysqli $conn, int $id): ?array {
  * botón «Enviar seleccionados al solicitante», que se retiró (retro RRHH
  * 2026-10-16): RRHH registra al candidato desde la vacante, así que ese paso
  * extra sólo dejaba candidatos que el jefe no veía (ticket 120).
+ * Si llega ya con «No apto» de RRHH, el mismo aviso lo dice.
  */
-function asignarAlSolicitante(mysqli $conn, array $vac, int $idCandidato, string $nombre): void {
+function asignarAlSolicitante(mysqli $conn, array $vac, int $idCandidato, string $nombre, ?string $resultadoRrhh = null): void {
     $idVac = (int)$vac['id'];
     $upd = $conn->prepare("UPDATE vacantes SET estatus = 'en_proceso' WHERE id = ? AND estatus = 'abierta'");
     $upd->bind_param('i', $idVac);
@@ -115,7 +117,8 @@ function asignarAlSolicitante(mysqli $conn, array $vac, int $idCandidato, string
         'destino_no_empleado' => (int)$vac['no_empleado_solicitante'],
         'id_vacante' => $idVac, 'id_candidato' => $idCandidato,
         'titulo' => 'Nuevo candidato para revisar — ' . $nombre,
-        'mensaje' => $vac['folio'] . ' · ' . $vac['puesto'],
+        'mensaje' => $vac['folio'] . ' · ' . $vac['puesto']
+            . ($resultadoRrhh === 'no_apto' ? ' · ' . SIVAC_MSJ_NO_APTO : ''),
         // Su vista de solicitante, aunque además sea de RRHH: aquí actúa
         // como dueño de la vacante, y es donde aprueba o descarta el CV.
         'url' => 'embed_solicitante.php',
@@ -128,15 +131,21 @@ switch ($accion) {
         // Tablero único del pipeline: además de los datos del candidato trae la
         // cita de la entrevista del jefe, para que la UI ofrezca inline la acción
         // que toca (confirmar / agendar / resultado) sin una pantalla aparte.
+        // «La última cita» excluye los cambios del jefe que esperan o no tuvieron
+        // VoBo: ésos no son la cita del candidato (ver includes/citas.php); el que
+        // espera viaja aparte (cita_jefe_por_aprobar) para el diálogo del VoBo.
         $idVacante = (int)($_POST['id_vacante'] ?? $_GET['id_vacante'] ?? 0);
         $sql = "SELECT c.id, TRIM(CONCAT_WS(' ', c.nombre, NULLIF(c.apellidos,''))) AS nombre, c.correo, c.telefono, c.estatus, c.cv_archivo,
-                       c.fecha_creacion, v.folio, v.puesto, v.id AS id_vacante, v.departamento,
+                       c.cv_abierto_jefe, c.fecha_creacion, v.folio, v.puesto, v.id AS id_vacante, v.departamento,
                        (SELECT ci.id FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' AND ci.estatus = 'pendiente' ORDER BY ci.id DESC LIMIT 1) AS cita_jefe_pendiente,
                        (SELECT DATE_FORMAT(ci.opcion1, '%d/%m/%Y %H:%i') FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' AND ci.estatus = 'pendiente' ORDER BY ci.id DESC LIMIT 1) AS cita_jefe_op1,
                        (SELECT DATE_FORMAT(ci.opcion2, '%d/%m/%Y %H:%i') FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' AND ci.estatus = 'pendiente' ORDER BY ci.id DESC LIMIT 1) AS cita_jefe_op2,
                        (SELECT ci.fecha_confirmada FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' AND ci.estatus IN ('confirmada','realizada') ORDER BY ci.id DESC LIMIT 1) AS cita_jefe_confirmada,
-                       (SELECT ci.notas FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' ORDER BY ci.id DESC LIMIT 1) AS cita_jefe_notas,
-                       (SELECT ci.estatus FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' ORDER BY ci.id DESC LIMIT 1) AS cita_jefe_ultima
+                       (SELECT ci.notas FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' AND ci.estatus NOT IN ('por_aprobar','no_aprobada') ORDER BY ci.id DESC LIMIT 1) AS cita_jefe_notas,
+                       (SELECT ci.estatus FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' AND ci.estatus NOT IN ('por_aprobar','no_aprobada') ORDER BY ci.id DESC LIMIT 1) AS cita_jefe_ultima,
+                       (SELECT ci.id FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' AND ci.estatus = 'por_aprobar' ORDER BY ci.id DESC LIMIT 1) AS cita_jefe_por_aprobar,
+                       (SELECT CONCAT_WS(' ó ', DATE_FORMAT(ci.opcion1, '%d/%m/%Y %H:%i'), DATE_FORMAT(ci.opcion2, '%d/%m/%Y %H:%i')) FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' AND ci.estatus = 'por_aprobar' ORDER BY ci.id DESC LIMIT 1) AS cita_jefe_por_aprobar_ops,
+                       (SELECT ci.notas FROM citas ci WHERE ci.id_candidato = c.id AND ci.tipo = 'jefe' AND ci.estatus = 'por_aprobar' ORDER BY ci.id DESC LIMIT 1) AS cita_jefe_por_aprobar_motivo
                 FROM candidatos c
                 INNER JOIN vacantes v ON v.id = c.id_vacante";
         $params = []; $tipos = '';
@@ -182,56 +191,17 @@ switch ($accion) {
         if (!$cand) responder(false, 'Candidato no encontrado.');
 
         // Historial (con el nombre del actor resuelto; no_empleado = 0 es el sistema).
-        $stmt = $conn->prepare(
-            "SELECT h.estatus_anterior, h.estatus_nuevo, h.no_empleado, h.comentario, h.fecha_creacion,
-                    u.nombre AS actor_nombre
-             FROM candidatos_historial h
-             LEFT JOIN mess_rrhh.usuarios u ON u.noEmpleado = h.no_empleado
-             WHERE h.id_candidato = ? ORDER BY h.id DESC"
-        );
-        if (!$stmt) responder(false, 'No se pudo leer el historial: ' . $conn->error);
-        $stmt->bind_param('i', $id);
-        $stmt->execute();
-        $hist = []; $rh = $stmt->get_result();
-        while ($r = $rh->fetch_assoc()) $hist[] = $r;
-        $stmt->close();
+        $hist = sivacHistorialCandidato($conn, $id);
+        if ($hist === null) responder(false, 'No se pudo leer el historial: ' . $conn->error);
 
-        // Citas, propuestas y documentos. Son ANEXOS de la ficha: si alguno no se
-        // puede leer se devuelve vacío en vez de tumbar la respuesta, porque lo que
-        // el usuario vino a ver —datos del candidato e historial— ya está resuelto
-        // arriba. Antes, un esquema desfasado en cualquiera de estas tres tablas
-        // dejaba la ficha entera sin abrir.
-        // Las citas son el historial de fechas de la entrevista del jefe: reagendar
-        // cancela la vigente y crea otra. Van con quién propuso (el solicitante),
-        // quién confirmó y con cuánto aviso llegó cada propuesta (retro 2026-10-26).
-        $citas = [];
-        if ($stmt = $conn->prepare(
-            "SELECT ci.*, uc.nombre AS confirmada_por_nombre, us.nombre AS solicitante_nombre
-               FROM citas ci
-              INNER JOIN candidatos c ON c.id = ci.id_candidato
-              INNER JOIN vacantes v ON v.id = c.id_vacante
-               LEFT JOIN mess_rrhh.usuarios uc ON uc.noEmpleado = ci.confirmada_por
-               LEFT JOIN mess_rrhh.usuarios us ON us.noEmpleado = v.no_empleado_solicitante
-              WHERE ci.id_candidato = ? ORDER BY ci.id DESC"
-        )) {
-            $stmt->bind_param('i', $id); $stmt->execute(); $rc = $stmt->get_result();
-            while ($r = $rc->fetch_assoc()) $citas[] = $r; $stmt->close();
-        }
-        // Aviso = días hábiles completos entre la propuesta y su opción más próxima.
-        // La fecha que pidió el propio candidato (cita anterior 'rechazada') no
-        // cuenta: ésa ya estaba hablada con él y no es un aviso corto del jefe.
-        foreach ($citas as $i => $ci) {
-            $previa = $citas[$i + 1] ?? null;  // DESC: la siguiente es la anterior
-            $pedida = ($previa && $previa['estatus'] === 'rechazada') ? (string)$previa['fecha_candidato'] : '';
-            $ts = [];
-            foreach ([$ci['opcion1'], $ci['opcion2']] as $op) {
-                if ($pedida !== '' && substr($op, 0, 16) === substr($pedida, 0, 16)) continue;
-                $ts[] = strtotime($op);
-            }
-            $dias = $ts ? sivacDiasHabilesEntre(strtotime($ci['fecha_creacion']), min($ts)) : null;
-            $citas[$i]['dias_aviso']  = $dias;
-            $citas[$i]['aviso_corto'] = ($dias !== null && $dias < SIVAC_CITA_DIAS_HABILES_AVISO) ? 1 : 0;
-        }
+        // Citas, propuestas, documentos y comentarios. Son ANEXOS de la ficha: si
+        // alguno no se puede leer se devuelve vacío en vez de tumbar la respuesta,
+        // porque lo que el usuario vino a ver —datos del candidato e historial— ya
+        // está resuelto arriba. Antes, un esquema desfasado en cualquiera de estas
+        // tablas dejaba la ficha entera sin abrir.
+        // Las citas son el historial de fechas de la entrevista del jefe (retro
+        // 2026-10-26), con el VoBo de cada cambio (retro 2026-10-29).
+        $citas = sivacHistorialCitas($conn, $id);
 
         $props = [];
         if ($stmt = $conn->prepare("SELECT * FROM propuestas WHERE id_candidato = ? ORDER BY id DESC")) {
@@ -252,7 +222,44 @@ switch ($accion) {
             while ($r = $rd->fetch_assoc()) $docs[] = $r;
         }
 
-        responder(true, '', ['data' => $cand, 'historial' => $hist, 'citas' => $citas, 'propuestas' => $props, 'documentos' => $docs]);
+        // RRHH ve todos los comentarios, internos incluidos.
+        $coments = sivacComentarios($conn, $id, true);
+
+        responder(true, '', ['data' => $cand, 'historial' => $hist, 'citas' => $citas, 'propuestas' => $props,
+                             'documentos' => $docs, 'comentarios' => $coments]);
+    }
+
+    case 'comentar': {
+        // RRHH comenta en la ficha: interno (sólo RRHH) o para el jefe. Sólo el
+        // de «para el jefe» le avisa a él; la nota interna es constancia.
+        $id      = (int)($_POST['id'] ?? 0);
+        $interno = (int)($_POST['es_interno'] ?? 1) === 1;
+        $texto   = (string)($_POST['comentario'] ?? '');
+        if ($id <= 0) responder(false, 'Id inválido.');
+        $stmt = $conn->prepare(
+            "SELECT TRIM(CONCAT_WS(' ', c.nombre, NULLIF(c.apellidos,''))) AS nombre, c.estatus,
+                    v.id AS id_vacante, v.folio, v.no_empleado_solicitante
+               FROM candidatos c INNER JOIN vacantes v ON v.id = c.id_vacante WHERE c.id = ? LIMIT 1"
+        );
+        $stmt->bind_param('i', $id); $stmt->execute();
+        $c = $stmt->get_result()->fetch_assoc(); $stmt->close();
+        if (!$c) responder(false, 'Candidato no encontrado.');
+
+        $error = sivacComentar($conn, $id, $noEmp, $texto, $interno);
+        if ($error !== '') responder(false, $error);
+
+        if (!$interno) {
+            notificarEvento($conn, 'comentario_rrhh', [
+                'destino_no_empleado' => (int)$c['no_empleado_solicitante'],
+                'id_candidato' => $id, 'id_vacante' => (int)$c['id_vacante'],
+                'titulo' => 'Comentario de RRHH — ' . $c['nombre'],
+                'mensaje' => $c['folio'] . ' · ' . sivacComentarioResumen($texto),
+                'url' => 'embed_solicitante.php',
+                'dedup' => true,
+            ]);
+        }
+        responder(true, $interno ? 'Nota interna guardada.' : 'Comentario enviado al jefe.',
+                  ['comentarios' => sivacComentarios($conn, $id, true)]);
     }
 
     case 'catalogos': {
@@ -314,7 +321,7 @@ switch ($accion) {
         $hist->execute();
         $hist->close();
 
-        asignarAlSolicitante($conn, $vac, $id, trim($nombre . ' ' . $apellidos));
+        asignarAlSolicitante($conn, $vac, $id, trim($nombre . ' ' . $apellidos), $entRrhhResVal);
 
         // El veredicto de RRHH (incluido "No apto") ya NO descarta solo: nadie
         // se descarta sin un botón explícito.
@@ -411,7 +418,7 @@ switch ($accion) {
         $hist->execute();
         $hist->close();
 
-        asignarAlSolicitante($conn, $vac, $nuevo, trim($o['nombre'] . ' ' . $o['apellidos']));
+        asignarAlSolicitante($conn, $vac, $nuevo, trim($o['nombre'] . ' ' . $o['apellidos']), $o['entrevista_rrhh_resultado']);
 
         responder(true, 'Candidato postulado a ' . $vac['folio'] . '. Sus documentos ya entregados se reutilizan.',
             ['id' => $nuevo]);
@@ -458,11 +465,34 @@ switch ($accion) {
         if (!filter_var($correo, FILTER_VALIDATE_EMAIL)) responder(false, 'Correo inválido.');
         if ($entRrhh['error']) responder(false, $entRrhh['error']);
         [$entRrhhFecha, $entRrhhResVal, $entRrhhObsVal] = [$entRrhh['fecha'], $entRrhh['resultado'], $entRrhh['observaciones']];
+
+        // Cómo estaba antes, para saber si el «No apto» es nuevo (ver abajo).
+        $stmt = $conn->prepare(
+            "SELECT c.entrevista_rrhh_resultado, c.estatus, v.id AS id_vacante, v.folio, v.no_empleado_solicitante
+               FROM candidatos c INNER JOIN vacantes v ON v.id = c.id_vacante WHERE c.id = ? LIMIT 1"
+        );
+        $stmt->bind_param('i', $id); $stmt->execute();
+        $previo = $stmt->get_result()->fetch_assoc(); $stmt->close();
+        if (!$previo) responder(false, 'Candidato no encontrado.');
+
         $stmt = $conn->prepare("UPDATE candidatos SET nombre = ?, apellidos = ?, correo = ?, telefono = ?, entrevista_rrhh_fecha = ?, entrevista_rrhh_resultado = ?, entrevista_rrhh_observaciones = ?, nave = ?, region = ? WHERE id = ?");
         $stmt->bind_param('sssssssiii', $nombre, $apellidos, $correo, $telefono, $entRrhhFecha, $entRrhhResVal, $entRrhhObsVal, $nave, $region, $id);
         $ok = $stmt->execute(); $stmt->close();
         if (!$ok) responder(false, 'No se pudo actualizar.');
-        // Un "No apto" ya NO descarta solo (nadie se descarta sin botón explícito).
+
+        // Un "No apto" ya NO descarta solo (nadie se descarta sin botón explícito),
+        // pero el jefe ya tiene al candidato en su tarjeta: si RRHH lo marca No apto
+        // con el proceso vivo, se le avisa para que pase a aclararlo (retro 2026-10-29).
+        if ($entRrhhResVal === 'no_apto' && $previo['entrevista_rrhh_resultado'] !== 'no_apto'
+            && !in_array($previo['estatus'], ['aspirante', 'descartado', 'contratado'], true)) {
+            notificarEvento($conn, 'candidato_no_apto', [
+                'destino_no_empleado' => (int)$previo['no_empleado_solicitante'],
+                'id_candidato' => $id, 'id_vacante' => (int)$previo['id_vacante'],
+                'titulo' => 'No apto en la entrevista de RRHH — ' . trim($nombre . ' ' . $apellidos),
+                'mensaje' => $previo['folio'] . ' · ' . SIVAC_MSJ_NO_APTO,
+                'url' => 'embed_solicitante.php',
+            ]);
+        }
         responder(true, 'Candidato actualizado.');
     }
 

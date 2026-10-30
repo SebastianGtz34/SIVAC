@@ -90,14 +90,34 @@ $(function () {
                 if (c.estatus === 'aprobado_jefe' && !c.cita_jefe_pendiente && c.cita_jefe_ultima === 'rechazada') {
                     htmlEntrevista = '<br><span class="badge badge-warning">Esperando fechas nuevas del jefe</span>';
                 }
+                // El jefe pidió mover la fecha vigente: hasta el VoBo no se confirma
+                // nada con el candidato (retro 2026-10-29).
+                var porAprobar = !!c.cita_jefe_por_aprobar
+                    && (c.estatus === 'aprobado_jefe' || c.estatus === 'entrevista_confirmada');
+                if (porAprobar) {
+                    htmlEntrevista += '<br><span class="badge badge-warning"><i class="fas fa-lock mr-1"></i>'
+                        + 'El jefe pide cambiar a: ' + escHtml(c.cita_jefe_por_aprobar_ops || '') + '</span>';
+                }
 
-
+                // ¿El jefe ya abrió el CV? Lo marca descargar.php la primera vez.
                 var cv = c.cv_archivo
                     ? '<a href="descargar.php?tipo=cv&id=' + c.id + '" target="_blank" class="btn btn-sm btn-outline-primary"><i class="fas fa-file-pdf"></i></a>'
+                        + (c.cv_abierto_jefe
+                            ? '<div class="small text-success mt-1" title="El jefe lo abrió por primera vez el ' + escHtml(formatearFecha(c.cv_abierto_jefe)) + '">'
+                                + '<i class="fas fa-eye mr-1"></i>' + escHtml(formatearSoloFecha(c.cv_abierto_jefe)) + '</div>'
+                            : '<div class="small text-muted mt-1" title="El jefe todavía no abre el CV"><i class="fas fa-eye-slash mr-1"></i>Sin abrir</div>')
                     : '<span class="text-muted">—</span>';
                 // Acción contextual del pipeline (la que antes vivía en Seguimiento).
                 var acc = '<div class="btn-group btn-group-sm">';
-                if (c.estatus === 'aprobado_jefe') {
+                if (porAprobar) {
+                    // El candado: en lugar de «Confirmar», el VoBo del cambio.
+                    acc += '<button class="btn btn-sm btn-warning btnVoboFechas" data-id="' + c.id + '"'
+                        + ' data-ops="' + escHtml(c.cita_jefe_por_aprobar_ops || '') + '"'
+                        + ' data-motivo="' + escHtml(c.cita_jefe_por_aprobar_motivo || '') + '"'
+                        + ' data-vigente="' + escHtml(c.cita_jefe_confirmada ? formatearFecha(c.cita_jefe_confirmada) + ' (confirmada con el candidato)'
+                            : [c.cita_jefe_op1, c.cita_jefe_op2].filter(Boolean).join(' ó ')) + '"'
+                        + ' title="El jefe pidió cambiar las fechas"><i class="fas fa-lock"></i> VoBo cambio de fechas</button>';
+                } else if (c.estatus === 'aprobado_jefe') {
                     if (c.cita_jefe_pendiente) {
                         // Las dos fechas viajan en el botón para que el diálogo de
                         // confirmación muestre horarios, no «Opción 1 / Opción 2».
@@ -377,21 +397,24 @@ $(function () {
         if (c.cv_archivo) {
             h += '<a href="descargar.php?tipo=cv&id=' + c.id + '" target="_blank" class="btn btn-sm btn-outline-primary mb-3"><i class="fas fa-file-pdf mr-1"></i> Ver CV</a>';
         }
-        // Timeline unificado y ORDENADO por fecha: filas del historial + constancia
-        // de RRHH + psicométrico. Las constancias son DATE (sin hora); se les da las
-        // 12:00 como llave neutra para desempatar contra los DATETIME del historial.
-        var items = [];
+        // Comentarios (como los de ticketsBI): internos o para el jefe. Van antes del
+        // historial porque son lo que se viene a leer o a escribir.
+        h += '<h6 class="mt-3">Comentarios</h6><div id="comentFicha" data-id="' + c.id + '">'
+            + sivacHtmlComentarios(res.comentarios) + sivacFormComentario(true) + '</div>';
 
-        (res.historial || []).forEach(function (x) {
-            var actor = (String(x.no_empleado) === '0') ? 'Sistema'
-                      : (x.actor_nombre || ('#' + x.no_empleado));
+        // Timeline unificado y ORDENADO por fecha: filas del historial + constancia
+        // de RRHH + psicométrico + fechas de la entrevista del jefe + cuándo abrió
+        // el CV. Las constancias son DATE (sin hora); se les da las 12:00 como llave
+        // neutra para desempatar contra los DATETIME del historial.
+        var items = sivacItemsHistorial(res.historial, estatusS);
+
+        if (c.cv_abierto_jefe) {
             items.push({
-                key: x.fecha_creacion,
-                html: '<li><div class="t-fecha">' + formatearFecha(x.fecha_creacion) + ' · ' + escHtml(actor) + '</div>'
-                    + escHtml((estatusS[x.estatus_anterior] || x.estatus_anterior) + ' → ' + (estatusS[x.estatus_nuevo] || x.estatus_nuevo))
-                    + (x.comentario ? '<div class="text-muted small">' + escHtml(x.comentario) + '</div>' : '') + '</li>'
+                key: c.cv_abierto_jefe,
+                html: '<li><div class="t-fecha">' + formatearFecha(c.cv_abierto_jefe) + ' · Solicitante</div>'
+                    + 'Abrió el CV por primera vez.</li>'
             });
-        });
+        }
 
         // Constancia de la entrevista de RRHH (ocurre fuera del sistema).
         if (c.entrevista_rrhh_fecha || c.entrevista_rrhh_resultado) {
@@ -424,60 +447,34 @@ $(function () {
             });
         }
 
-        // Fechas de la entrevista del jefe (retro 2026-10-26). Ya vivían en `citas`
-        // —reagendar cancela la vigente y crea otra— pero la ficha no las enseñaba,
-        // y sin ellas no se veía quién movió la entrevista, cuándo ni con qué aviso.
-        var citas = (res.citas || []).slice().reverse();  // de la más vieja a la más nueva
-        citas.forEach(function (ci, i) {
-            var previa = i > 0 ? citas[i - 1] : null;
-            var accion = !previa ? 'Propuso fechas de entrevista'
-                       : previa.estatus === 'rechazada' ? 'Propuso nuevas fechas (el candidato no pudo en las anteriores)'
-                       : 'Reagendó la entrevista';
-            var estado;
-            if (ci.estatus === 'pendiente') {
-                estado = escHtml('Pendiente de confirmar con el candidato.');
-            } else if (ci.estatus === 'confirmada') {
-                estado = escHtml('Confirmada' + (ci.confirmada_por_nombre ? ' por ' + ci.confirmada_por_nombre : '')
-                    + ': ' + formatearFecha(ci.fecha_confirmada) + '.');
-            } else if (ci.estatus === 'realizada') {
-                estado = escHtml('Realizada el ' + formatearFecha(ci.fecha_confirmada) + '.');
-            } else if (ci.estatus === 'rechazada') {
-                estado = escHtml('El candidato no pudo en ninguna'
-                    + (ci.fecha_candidato ? '; pidió el ' + formatearFecha(ci.fecha_candidato) : '') + '.');
-            } else {
-                // Cancelada. Si ya tenía fecha confirmada, RRHH ya se la había dado
-                // al candidato: es lo que hay que poder demostrar.
-                estado = ci.fecha_confirmada
-                    ? '<strong class="text-danger">' + escHtml('Ya estaba confirmada con el candidato para el '
-                        + formatearFecha(ci.fecha_confirmada) + '; se canceló al reagendar.') + '</strong>'
-                    : escHtml('Reemplazada por la siguiente propuesta.');
-            }
-            var aviso = '';
-            if (ci.dias_aviso !== null && ci.dias_aviso !== undefined) {
-                var txtAviso = 'Aviso: ' + ci.dias_aviso + (Number(ci.dias_aviso) === 1 ? ' día hábil' : ' días hábiles');
-                aviso = ' · ' + (String(ci.aviso_corto) === '1'
-                    ? '<strong class="text-danger">' + escHtml(txtAviso) + '</strong>'
-                    : '<span class="text-muted">' + escHtml(txtAviso) + '</span>');
-            }
-            items.push({
-                key: ci.fecha_creacion,
-                html: '<li><div class="t-fecha">' + formatearFecha(ci.fecha_creacion) + ' · '
-                    + escHtml(ci.solicitante_nombre || 'Solicitante') + '</div>'
-                    + escHtml(accion + ': ' + formatearFecha(ci.opcion1) + ' o ' + formatearFecha(ci.opcion2)) + aviso
-                    + '<div class="small">' + estado + '</div>'
-                    + (ci.notas ? '<div class="text-muted small">' + escHtml(ci.notas) + '</div>' : '') + '</li>'
-            });
-        });
+        // Fechas de la entrevista del jefe (retro 2026-10-26), con el VoBo de cada
+        // cambio (retro 2026-10-29). Las pinta funciones.js: el jefe ve lo mismo.
+        items = items.concat(sivacItemsCitas(res.citas, c.estatus));
 
-        // Orden descendente (lo más reciente arriba). Las llaves son 'YYYY-MM-DD HH:MM:SS'
-        // → la comparación lexicográfica coincide con la cronológica.
-        items.sort(function (a, b) { return a.key < b.key ? 1 : (a.key > b.key ? -1 : 0); });
-
-        h += '<h6 class="mt-3">Historial</h6><ul class="timeline">';
-        items.forEach(function (it) { h += it.html; });
-        h += '</ul>';
+        h += '<h6 class="mt-3">Historial</h6>' + sivacPintarTimeline(items);
         return h;
     }
+
+    // Comentar desde la ficha. La respuesta trae el hilo actualizado: se repinta
+    // sólo la lista, sin perder la posición del modal.
+    $('#detalleBody').on('click', '.btnComentar', function () {
+        var $box = $('#comentFicha');
+        var texto = $box.find('.txtComentario').val().trim();
+        if (!texto) { mostrarToast('Escribe el comentario.', 'warning'); return; }
+        var interno = $box.find('input[name="coment_interno"]:checked').val() || '1';
+        var $btn = $(this).prop('disabled', true);
+        ajaxPost('acciones_candidatos.php', {
+            accion: 'comentar', id: $box.data('id'), comentario: texto, es_interno: interno
+        }, function (err, res) {
+            $btn.prop('disabled', false);
+            if (res && res.success) {
+                $box.children('.coment-lista, p.text-muted').remove();
+                $box.prepend(sivacHtmlComentarios(res.comentarios));
+                $box.find('.txtComentario').val('');
+                mostrarToast(res.message, 'success');
+            } else { mostrarToast((res && res.message) || 'No se pudo guardar el comentario.', 'error'); }
+        });
+    });
 
     // ── Entrevista del jefe (acciones que antes vivían en Seguimiento) ──
     $('#tablaCandidatos tbody').on('click', '.btnCita', function () {
@@ -538,6 +535,46 @@ $(function () {
                 : { accion: 'confirmar_entrevista', id: id, opcion: r.value.opcion, notas: r.value.notas };
             ajaxPost('acciones_proceso.php', datos, function (err, res) {
                 if (res && res.success) { mostrarToast(res.message, res.aviso ? 'warning' : 'success'); cargar(); }
+                else { mostrarToast((res && res.message) || 'Error.', 'error'); }
+            });
+        });
+    });
+
+    // ── VoBo al cambio de fechas que pidió el jefe (retro 2026-10-29) ──
+    // «Enterado» aplica el cambio (la fecha vigente se cancela y las nuevas quedan
+    // por confirmar con el candidato); «No aprobar» lo rechaza con motivo y sigue
+    // la vigente. Hasta entonces la fila no ofrece «Confirmar entrevista».
+    $('#tablaCandidatos tbody').on('click', '.btnVoboFechas', function () {
+        var id = $(this).data('id');
+        var ops = String($(this).data('ops') || '');
+        var motivo = String($(this).data('motivo') || '');
+        var vigente = String($(this).data('vigente') || '');
+        Swal.fire({
+            title: 'Cambio de fechas del jefe',
+            html: '<div class="text-left small">'
+                + (vigente ? '<p class="mb-1"><strong>Vigente:</strong> ' + escHtml(vigente) + '</p>' : '')
+                + '<p class="mb-1"><strong>Pide cambiar a:</strong> ' + escHtml(ops) + '</p>'
+                + (motivo ? '<p class="mb-2"><strong>Motivo:</strong> ' + escHtml(motivo) + '</p>' : '')
+                + '<p class="text-muted mb-1">Con «Enterado» se cancela la fecha vigente y confirmas con el candidato '
+                + 'una de las nuevas. Si no lo apruebas, sigue la vigente y el jefe ve tu motivo.</p></div>'
+                + '<textarea id="sw_vobo_motivo" class="swal2-textarea" placeholder="Motivo (obligatorio si no lo apruebas)"></textarea>',
+            showCancelButton: true, showDenyButton: true,
+            confirmButtonColor: messColor('accent'), denyButtonColor: messColor('danger'),
+            background: messColor('card-bg'), color: messColor('text'),
+            confirmButtonText: 'Enterado · dar VoBo', denyButtonText: 'No aprobar', cancelButtonText: 'Cancelar',
+            preDeny: function () {
+                var m = document.getElementById('sw_vobo_motivo').value.trim();
+                if (!m) { Swal.showValidationMessage('Indica por qué no se aprueba: se le dice al jefe.'); return false; }
+                return m;
+            }
+        }).then(function (r) {
+            if (!r.isConfirmed && !r.isDenied) return;
+            ajaxPost('acciones_proceso.php', {
+                accion: 'vobo_cambio_fechas', id: id,
+                decision: r.isConfirmed ? 'aprobar' : 'rechazar',
+                motivo: r.isDenied ? r.value : ''
+            }, function (err, res) {
+                if (res && res.success) { mostrarToast(res.message, 'success'); cargar(); }
                 else { mostrarToast((res && res.message) || 'Error.', 'error'); }
             });
         });
