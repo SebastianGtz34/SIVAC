@@ -236,6 +236,24 @@ CREATE TABLE IF NOT EXISTS candidatos_comentarios (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ----------------------------------------------------------------------------
+-- Notas generales del PUESTO (vacante), no de un candidato (pedido de RRHH,
+-- 2026-11-03): actualizaciones de la búsqueda que lee el jefe dueño de la
+-- vacante, y él puede contestar. No hay notas internas: para eso están los
+-- comentarios internos de cada candidato.
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS vacantes_comentarios (
+    id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    id_vacante    INT UNSIGNED NOT NULL,
+    no_empleado   INT UNSIGNED NOT NULL COMMENT 'quién lo escribió',
+    comentario    TEXT NOT NULL,
+    fecha_creacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_coment_vacante (id_vacante),
+    CONSTRAINT fk_coment_vacante FOREIGN KEY (id_vacante)
+        REFERENCES vacantes (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ----------------------------------------------------------------------------
 -- Propuestas económicas con periodo de caducidad.
 -- 1:N — si expira se puede reenviar una nueva.
 -- capturado_por = RRHH que registró la propuesta.

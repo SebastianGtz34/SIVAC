@@ -865,12 +865,27 @@ $(function () {
                     + '<div class="text-muted small mb-2">' + escHtml(v.folio)
                     + ' · ' + escHtml((window.SIVAC_TIPOS_VACANTE && window.SIVAC_TIPOS_VACANTE[v.tipo]) || v.tipo) + '</div>'
                     + pie
+                    // Notas generales del puesto con RRHH; el número = notas en el hilo.
+                    + '<div class="mt-2 text-right"><button type="button" class="btn btn-sm btn-outline-secondary btnNotasVac" data-id="' + v.id + '">'
+                    + '<i class="fas fa-sticky-note mr-1"></i>Notas del puesto'
+                    + (Number(v.notas) > 0 ? ' <span class="badge badge-primary">' + Number(v.notas) + '</span>' : '')
+                    + '</button></div>'
                     + '</div></div></div>'
                 );
             });
             resaltarVac();   // mantiene el resaltado de la vacante seleccionada
         });
     }
+
+    // El botón vive dentro de la tarjeta: no debe cambiar la vacante seleccionada.
+    $('#misVacantes').on('click', '.btnNotasVac', function (e) {
+        e.stopPropagation();
+        sivacAbrirNotasVacante({
+            url: 'acciones_solicitante.php', accionVer: 'notas_vacante', accionComentar: 'comentar_vacante',
+            id: $(this).data('id'), placeholder: 'Escribe una nota para RRHH sobre esta vacante…',
+            alGuardar: cargarVacantes   // refresca el contador de la tarjeta
+        });
+    });
 
     // Resalta la tarjeta de la vacante seleccionada (master-detalle).
     function resaltarVac() {

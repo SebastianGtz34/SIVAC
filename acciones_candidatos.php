@@ -152,6 +152,9 @@ switch ($accion) {
         if ($idVacante > 0) { $sql .= " WHERE c.id_vacante = ?"; $tipos .= 'i'; $params[] = $idVacante; }
         $sql .= " ORDER BY c.id DESC";
         $stmt = $conn->prepare($sql);
+        // Sin esto, un ALTER pendiente en el servidor (p. ej. cv_abierto_jefe) es
+        // un 500 mudo y la tabla sale vacía. Ver DESPLIEGUE.md, retro 29-oct.
+        if (!$stmt) responder(false, 'No se pudieron leer los candidatos: ' . $conn->error);
         if ($tipos) $stmt->bind_param($tipos, ...$params);
         $stmt->execute();
         $res = $stmt->get_result();

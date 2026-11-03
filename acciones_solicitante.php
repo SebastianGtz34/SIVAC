@@ -27,6 +27,17 @@ require_once 'includes/comentarios.php';
 $noEmp = requiereSesionJson();
 $accion = $_POST['accion'] ?? $_GET['accion'] ?? '';
 
+/** Folio y puesto de la vacante SÓLO si es de este jefe (null si no o si no existe). */
+function vacanteDelSolicitante(mysqli $conn, int $noEmp, int $idVacante): ?array {
+    if ($idVacante <= 0) return null;
+    $stmt = $conn->prepare("SELECT folio, puesto FROM vacantes WHERE id = ? AND no_empleado_solicitante = ? LIMIT 1");
+    $stmt->bind_param('ii', $idVacante, $noEmp);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    return $row ?: null;
+}
+
 switch ($accion) {
 
     case 'catalogos': {
@@ -141,7 +152,9 @@ switch ($accion) {
         $stmt->bind_param('i', $noEmp);
         $stmt->execute();
         $res = $stmt->get_result();
-        $data = []; while ($r = $res->fetch_assoc()) $data[] = $r;
+        $notas = sivacConteoNotasVacante($conn, $noEmp);
+        $data = [];
+        while ($r = $res->fetch_assoc()) { $r['notas'] = $notas[(int)$r['id']] ?? 0; $data[] = $r; }
         $stmt->close();
         $stmt = $conn->prepare("SELECT COUNT(*) AS n FROM vacantes v
                                  WHERE v.no_empleado_solicitante = ? AND " . SIVAC_SQL_VACANTE_DESCARTE_VIEJO);
@@ -622,6 +635,35 @@ switch ($accion) {
             ]);
         }
         responder(true, 'Comentario enviado a RRHH.', ['comentarios' => sivacComentarios($conn, $id, false)]);
+    }
+
+    case 'notas_vacante': {
+        // Notas generales del puesto (pedido de RRHH 2026-11-03). Pertenencia por
+        // la sesión, como todo aquí: sólo las de SUS vacantes.
+        $id = (int)($_POST['id'] ?? 0);
+        $vac = vacanteDelSolicitante($conn, $noEmp, $id);
+        if (!$vac) responder(false, 'No tienes permiso sobre esta vacante.');
+        responder(true, '', ['data' => $vac, 'comentarios' => sivacComentariosVacante($conn, $id)]);
+    }
+
+    case 'comentar_vacante': {
+        $id    = (int)($_POST['id'] ?? 0);
+        $texto = (string)($_POST['comentario'] ?? '');
+        $vac = vacanteDelSolicitante($conn, $noEmp, $id);
+        if (!$vac) responder(false, 'No tienes permiso sobre esta vacante.');
+
+        $error = sivacComentarVacante($conn, $id, $noEmp, $texto);
+        if ($error !== '') responder(false, $error);
+
+        notificarEvento($conn, 'nota_vacante_jefe', [
+            'destinos_no_empleado' => sivacDestinosRRHH($conn),
+            'id_vacante' => $id,
+            'titulo'  => 'Nota del solicitante sobre la vacante — ' . $vac['folio'],
+            'mensaje' => $vac['puesto'] . ' · ' . sivacComentarioResumen($texto),
+            'url'     => 'vacantes.php',
+            'dedup'   => true,
+        ]);
+        responder(true, 'Nota enviada a RRHH.', ['comentarios' => sivacComentariosVacante($conn, $id)]);
     }
 
 // =========================================================================

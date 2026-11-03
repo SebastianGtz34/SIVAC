@@ -212,6 +212,30 @@ Los CV que el jefe ya abrió antes de subir esto quedan como «sin abrir»: no
 había registro. Las citas anteriores quedan sin VoBo (`vobo_*` en NULL) y la
 ficha las sigue pintando como «Reagendó la entrevista».
 
+### Notas del puesto (3-nov)
+Notas generales por vacante (no por candidato), sin opción de «interno»: las
+escriben y leen RRHH (Vacantes → «Notas») y el jefe dueño («Notas del puesto»
+en su tarjeta). Sin la tabla, las vacantes **sí cargan** (el contador sale en 0)
+pero las notas no abren ni se guardan.
+
+Las tablas llevan el nombre de la base delante a propósito: en phpMyAdmin, si la
+consulta anterior dejó activa `information_schema`, un `ALTER`/`CREATE` sin él
+falla con *#1044 Acceso negado … 'information_schema'*.
+
+```sql
+CREATE TABLE IF NOT EXISTS mess_sivac.vacantes_comentarios (
+    id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    id_vacante    INT UNSIGNED NOT NULL,
+    no_empleado   INT UNSIGNED NOT NULL COMMENT 'quién lo escribió',
+    comentario    TEXT NOT NULL,
+    fecha_creacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_coment_vacante (id_vacante),
+    CONSTRAINT fk_coment_vacante FOREIGN KEY (id_vacante)
+        REFERENCES mess_sivac.vacantes (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+
 ### Validación de documentos (17-ago) — comprobar antes de descartarlo
 Estas columnas entraron con la retro de validación de documentos y **nunca se
 anotaron aquí**, así que no consta si se aplicaron en producción. Comprobar:

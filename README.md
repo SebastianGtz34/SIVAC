@@ -276,6 +276,12 @@ bitácora de RRHH (`candidatos_historial`).
 nada le llegue al jefe por descuido) o **Para el jefe**; lo que escribe el jefe
 lo ve RRHH. El servidor no le manda al jefe las notas internas.
 
+**Notas del puesto** (pedido de RRHH 2026-11-03): el mismo hilo pero por
+**vacante**, en `vacantes_comentarios`, para actualizaciones generales de la
+búsqueda que no son de un candidato. No hay notas internas: las escriben y leen
+RRHH (Vacantes → «Notas») y el jefe dueño («Notas del puesto» en su tarjeta), y
+cada nota le llega al otro lado por campana, con dedup.
+
 **CV abierto**: `candidatos.cv_abierto_jefe` guarda la primera vez que el jefe
 dueño de la vacante abrió el CV (lo marca `descargar.php`, sólo si el archivo sí
 se entregó; RRHH abriéndolo no cuenta). La tarjeta del jefe dice «CV sin abrir» y

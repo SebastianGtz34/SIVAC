@@ -11,6 +11,7 @@ require_once 'includes/flujo.php';
 require_once 'includes/catalogos.php';
 require_once 'includes/vacantes.php';
 require_once 'includes/notificaciones.php';
+require_once 'includes/comentarios.php';
 
 $noEmp = requiereSesionJson();
 requiereRRHHJson($conn, $noEmp);
@@ -85,6 +86,7 @@ switch ($accion) {
         $res = $stmt->get_result();
         $regiones = catalogoRegiones($conn);
         $deptos   = catalogoDepartamentos($conn);
+        $notas    = sivacConteoNotasVacante($conn);
         $data = [];
         while ($r = $res->fetch_assoc()) {
             $sol = obtenerDatosEmpleado($conn, (int)$r['no_empleado_solicitante']);
@@ -92,6 +94,7 @@ switch ($accion) {
             $r['region_nombre'] = $regiones[(int)$r['region']] ?? '';
             $r['area']          = $deptos[(int)$r['departamento']] ?? '';
             $r['tipo_label']    = sivacTipoVacanteLabel($r['tipo']);
+            $r['notas']         = $notas[(int)$r['id']] ?? 0;
             $data[] = $r;
         }
         $stmt->close();
@@ -154,6 +157,44 @@ switch ($accion) {
         responder(true, $decision === 'aprobar'
             ? 'Requisición aprobada; la vacante quedó abierta.'
             : 'Requisición rechazada.');
+    }
+
+    case 'notas': {
+        // Notas generales del puesto (pedido de RRHH 2026-11-03): no son internas,
+        // el jefe dueño de la vacante lee las mismas y contesta en el mismo hilo.
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id <= 0) responder(false, 'Id inválido.');
+        $stmt = $conn->prepare("SELECT folio, puesto FROM vacantes WHERE id = ? LIMIT 1");
+        $stmt->bind_param('i', $id); $stmt->execute();
+        $vac = $stmt->get_result()->fetch_assoc(); $stmt->close();
+        if (!$vac) responder(false, 'Vacante no encontrada.');
+        responder(true, '', ['data' => $vac, 'comentarios' => sivacComentariosVacante($conn, $id)]);
+    }
+
+    case 'comentar': {
+        $id    = (int)($_POST['id'] ?? 0);
+        $texto = (string)($_POST['comentario'] ?? '');
+        if ($id <= 0) responder(false, 'Id inválido.');
+        $stmt = $conn->prepare("SELECT folio, puesto, no_empleado_solicitante FROM vacantes WHERE id = ? LIMIT 1");
+        $stmt->bind_param('i', $id); $stmt->execute();
+        $vac = $stmt->get_result()->fetch_assoc(); $stmt->close();
+        if (!$vac) responder(false, 'Vacante no encontrada.');
+
+        $error = sivacComentarVacante($conn, $id, $noEmp, $texto);
+        if ($error !== '') responder(false, $error);
+
+        // Sólo campana y con dedup, como los comentarios del candidato: cinco
+        // notas seguidas dejan un aviso sin leer, no cinco.
+        notificarEvento($conn, 'nota_vacante_rrhh', [
+            'destino_no_empleado' => (int)$vac['no_empleado_solicitante'],
+            'id_vacante' => $id,
+            'titulo'  => 'Nota de RRHH sobre la vacante — ' . $vac['folio'],
+            'mensaje' => $vac['puesto'] . ' · ' . sivacComentarioResumen($texto),
+            'url'     => 'embed_solicitante.php',
+            'dedup'   => true,
+        ]);
+        responder(true, 'Nota guardada; el jefe ya la puede ver.',
+                  ['comentarios' => sivacComentariosVacante($conn, $id)]);
     }
 
     case 'puestos': {
