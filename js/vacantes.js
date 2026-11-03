@@ -64,6 +64,11 @@ $(function () {
                     // fila (ver a quién se le está buscando) y llega a Candidatos ya
                     // filtrado y con el modal de registro abierto.
                     + '<a class="btn btn-outline-primary" href="candidatos.php?vacante=' + v.id + '" title="Ver los candidatos de esta vacante"><i class="fas fa-users mr-1"></i>Ver candidatos</a>'
+                    // Notas generales del puesto; las ve también el jefe.
+                    + '<button class="btn btn-outline-secondary btnNotas" data-id="' + v.id + '" title="Notas del puesto (las ve el jefe)">'
+                    + '<i class="fas fa-sticky-note mr-1"></i>Notas'
+                    + (Number(v.notas) > 0 ? ' <span class="badge badge-primary">' + Number(v.notas) + '</span>' : '')
+                    + '</button>'
                     + '</div>';
 
                 // El puesto lleva debajo el tipo y, si la levantó un jefe, de dónde vino.
@@ -100,6 +105,14 @@ $(function () {
     }
 
     $('#filtroestatus').on('change', cargar);
+
+    $('#tablaVacantes tbody').on('click', '.btnNotas', function () {
+        sivacAbrirNotasVacante({
+            url: 'acciones_vacantes.php', accionVer: 'notas', accionComentar: 'comentar',
+            id: $(this).data('id'), placeholder: 'Escribe una nota del puesto (la verá el jefe)…',
+            alGuardar: cargar   // refresca el contador de la fila
+        });
+    });
 
     $('#btnNuevaVacante').on('click', function () {
         $('#formVacante')[0].reset();

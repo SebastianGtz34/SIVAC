@@ -350,10 +350,10 @@ function sivacHtmlComentarios(comentarios) {
 
 /** Formulario para comentar. Con `conInterno` (RRHH) se elige si es nota interna
  *  o para el jefe; arranca en «Interno» para que nada le llegue al jefe por descuido. */
-function sivacFormComentario(conInterno) {
+function sivacFormComentario(conInterno, placeholder) {
     return '<div class="coment-form">'
         + '<textarea class="form-control form-control-sm mb-2 txtComentario" rows="2" maxlength="2000" placeholder="'
-        + (conInterno ? 'Escribe un comentario…' : 'Escribe un comentario para RRHH…') + '"></textarea>'
+        + escHtml(placeholder || (conInterno ? 'Escribe un comentario…' : 'Escribe un comentario para RRHH…')) + '"></textarea>'
         + '<div class="d-flex align-items-center justify-content-between">'
         + (conInterno
             ? '<div class="btn-group btn-group-sm btn-group-toggle grupoInterno" data-toggle="buttons">'
@@ -364,6 +364,54 @@ function sivacFormComentario(conInterno) {
             : '<span></span>')
         + '<button type="button" class="btn btn-sm btn-primary btnComentar"><i class="fas fa-paper-plane mr-1"></i>Enviar</button>'
         + '</div></div>';
+}
+
+/**
+ * Notas generales del puesto (pedido de RRHH 2026-11-03): un hilo por vacante,
+ * sin notas internas, que leen y escriben RRHH (js/vacantes.js) y el jefe dueño
+ * (embed_solicitante.php). Cada vista sólo dice a qué endpoint pegarle.
+ *   o.url, o.accionVer, o.accionComentar → endpoint y acciones (POST id / comentario)
+ *   o.id → id de la vacante · o.placeholder → texto del cuadro
+ *   o.alGuardar(n) → opcional, con el nuevo total de notas (para el contador)
+ * El modal se crea una vez y se reutiliza.
+ */
+function sivacAbrirNotasVacante(o) {
+    var $m = $('#modalNotasVacante');
+    if (!$m.length) {
+        $m = $('<div class="modal fade" id="modalNotasVacante" tabindex="-1" role="dialog">'
+            + '<div class="modal-dialog modal-lg" role="document"><div class="modal-content">'
+            + '<div class="modal-header"><h5 class="modal-title" id="notasVacTitulo">Notas del puesto</h5>'
+            + '<button type="button" class="close" data-dismiss="modal">&times;</button></div>'
+            + '<div class="modal-body"><p class="small text-muted mb-2">'
+            + 'Notas generales de la vacante, no de un candidato. Las ven RRHH y el jefe que la pidió.</p>'
+            + '<div id="notasVacBody"></div></div></div></div></div>').appendTo('body');
+    }
+    var $body = $m.find('#notasVacBody');
+
+    function pintar(comentarios) {
+        $body.html(sivacHtmlComentarios(comentarios) + sivacFormComentario(false, o.placeholder));
+    }
+
+    ajaxPost(o.url, { accion: o.accionVer, id: o.id }, function (err, res) {
+        if (!res || !res.success) { mostrarToast((res && res.message) || 'No se pudieron cargar las notas.', 'error'); return; }
+        $m.find('#notasVacTitulo').text('Notas del puesto — ' + res.data.puesto + ' (' + res.data.folio + ')');
+        pintar(res.comentarios);
+        // Se reengancha en cada apertura: el modal es el mismo para todas las vacantes.
+        $body.off('click', '.btnComentar').on('click', '.btnComentar', function () {
+            var texto = $body.find('.txtComentario').val().trim();
+            if (!texto) { mostrarToast('Escribe la nota.', 'warning'); return; }
+            var $btn = $(this).prop('disabled', true);
+            ajaxPost(o.url, { accion: o.accionComentar, id: o.id, comentario: texto }, function (err2, res2) {
+                $btn.prop('disabled', false);
+                if (res2 && res2.success) {
+                    pintar(res2.comentarios);
+                    mostrarToast(res2.message, 'success');
+                    if (o.alGuardar) o.alGuardar((res2.comentarios || []).length);
+                } else { mostrarToast((res2 && res2.message) || 'No se pudo guardar la nota.', 'error'); }
+            });
+        });
+        $m.modal('show');
+    });
 }
 
 /** Idioma es-MX local para DataTables (cero CDN). */
