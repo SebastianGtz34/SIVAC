@@ -161,8 +161,8 @@ $(function () {
         e.preventDefault();
         var data = $(this).serializeArray();
         data.push({ name: 'accion', value: $('#vac_id').val() ? 'editar' : 'crear' });
-        ajaxPost('acciones_vacantes.php', data, function (err, res) {
-            if (err || !res) { mostrarToast('Error de comunicación.', 'error'); return; }
+        ajaxPost('acciones_vacantes.php', data, function (err, res, xhr) {
+            if (err || !res) { mostrarToast(sivacMensajeErrorAjax(xhr), 'error'); return; }
             if (res.success) {
                 $('#modalVacante').modal('hide');
                 mostrarToast(res.message || 'Guardado.', 'success');

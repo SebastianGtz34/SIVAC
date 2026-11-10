@@ -441,16 +441,33 @@ function ajaxPost(url, data, callback) {
     $.ajax({
         url: url, method: 'POST', data: data, dataType: 'json',
         success: function (res) { if (typeof callback === 'function') callback(null, res); },
-        error: function (xhr, status, err) { if (typeof callback === 'function') callback(err || status, null); }
+        error: function (xhr, status, err) { if (typeof callback === 'function') callback(err || status, null, xhr); }
     });
 }
 
-/** Envía un FormData (para subidas de archivo) → JSON con callback(err, res). */
+/** Envía un FormData (para subidas de archivo) → JSON con callback(err, res, xhr). */
 function ajaxUpload(url, formData, callback) {
     $.ajax({
         url: url, method: 'POST', data: formData,
         processData: false, contentType: false, dataType: 'json',
         success: function (res) { if (typeof callback === 'function') callback(null, res); },
-        error: function (xhr, status, err) { if (typeof callback === 'function') callback(err || status, null); }
+        error: function (xhr, status, err) { if (typeof callback === 'function') callback(err || status, null, xhr); }
     });
+}
+
+/**
+ * Qué decir cuando la petición no trajo JSON (2026-11-10). Antes todo salía como
+ * «Error de comunicación.», fuera la sesión vencida, un CV que el servidor web
+ * rechaza por tamaño o un error de PHP, y no había por dónde empezar.
+ */
+function sivacMensajeErrorAjax(xhr) {
+    var st = xhr ? xhr.status : 0;
+    var msg = '';
+    try { msg = (JSON.parse(xhr.responseText) || {}).message || ''; } catch (e) { /* no era JSON */ }
+    if (st === 0)   return 'No hubo respuesta del servidor. Revisa tu conexión e inténtalo de nuevo.';
+    if (st === 401) return 'Tu sesión expiró. Vuelve a entrar al portal e inténtalo de nuevo.';
+    if (st === 413) return 'El archivo es demasiado grande para el servidor. Prueba con un PDF más ligero.';
+    if (msg)        return msg + ' (HTTP ' + st + ')';
+    if (st === 200) return 'El servidor respondió algo inesperado (no es JSON). Avisa a BI.';
+    return 'Error del servidor (HTTP ' + st + '). Antes de reintentar, revisa si el cambio se guardó.';
 }

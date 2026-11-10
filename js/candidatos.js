@@ -260,9 +260,9 @@ $(function () {
         var fd = new FormData(this);
         fd.append('accion', esEdicion ? 'editar' : 'crear');
         var $btn = $('#btnGuardarCandidato').prop('disabled', true);
-        ajaxUpload('acciones_candidatos.php', fd, function (err, res) {
+        ajaxUpload('acciones_candidatos.php', fd, function (err, res, xhr) {
             $btn.prop('disabled', false);
-            if (err || !res) { mostrarToast('Error de comunicación.', 'error'); return; }
+            if (err || !res) { mostrarToast(sivacMensajeErrorAjax(xhr), 'error'); return; }
             if (res.success) {
                 $('#modalCandidato').modal('hide');
                 mostrarToast(res.message || 'Guardado.', 'success');
