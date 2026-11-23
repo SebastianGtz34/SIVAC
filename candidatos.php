@@ -90,15 +90,15 @@ include 'encabezado.php';
         </div>
         <div class="form-row">
           <div class="form-group col-md-6">
-            <label>Nave</label>
-            <select class="form-control" name="nave" id="cand_nave">
-              <option value="">Sin asignar</option>
+            <label>Nave *</label>
+            <select class="form-control" name="nave" id="cand_nave" required>
+              <option value="">Selecciona…</option>
             </select>
           </div>
           <div class="form-group col-md-6">
-            <label>Región</label>
-            <select class="form-control" name="region" id="cand_region">
-              <option value="">Sin asignar</option>
+            <label>Región *</label>
+            <select class="form-control" name="region" id="cand_region" required>
+              <option value="">Selecciona…</option>
             </select>
           </div>
         </div>

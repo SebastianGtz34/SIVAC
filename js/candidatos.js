@@ -33,12 +33,14 @@ $(function () {
         // Naves y regiones (mess_rrhh) para el form de candidato.
         ajaxPost('acciones_candidatos.php', { accion: 'catalogos' }, function (err, res) {
             if (err || !res || !res.success) return;
-            var optNave = '<option value="">Sin asignar</option>';
+            // Obligatorias (required en candidatos.php): en la BD de producción
+            // nave y region son NOT NULL y un vacío tronaba el INSERT.
+            var optNave = '<option value="">Selecciona…</option>';
             (res.naves || []).forEach(function (n) {
                 optNave += '<option value="' + n.id + '">' + escHtml(n.nave) + '</option>';
             });
             $('#cand_nave').html(optNave);
-            var optReg = '<option value="">Sin asignar</option>';
+            var optReg = '<option value="">Selecciona…</option>';
             (res.regiones || []).forEach(function (r) {
                 optReg += '<option value="' + r.id + '">' + escHtml(r.region) + '</option>';
             });

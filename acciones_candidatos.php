@@ -40,6 +40,17 @@ function idCatalogoOpcional(array $post, string $campo): ?int {
     return $v > 0 ? $v : null;
 }
 
+/**
+ * Nave y región son obligatorias (2026-11-10): en la BD de producción son
+ * NOT NULL, y un «Sin asignar» tronaba el INSERT con un 500 que en pantalla
+ * salía como «Error de comunicación.». '' si están las dos, o el mensaje.
+ */
+function faltaNaveRegion(?int $nave, ?int $region): string {
+    if ($nave === null)   return 'Selecciona la nave.';
+    if ($region === null) return 'Selecciona la región.';
+    return '';
+}
+
 function sanearConstanciaRrhh(array $post): array {
     $fechaRaw = trim($post['entrevista_rrhh_fecha'] ?? '');
     $fecha = $fechaRaw !== '' && strtotime($fechaRaw) ? date('Y-m-d', strtotime($fechaRaw)) : null;
@@ -292,6 +303,8 @@ switch ($accion) {
         if ($nombre === '') responder(false, 'El nombre es obligatorio.');
         if ($apellidos === '') responder(false, 'Los apellidos son obligatorios.');
         if (!filter_var($correo, FILTER_VALIDATE_EMAIL)) responder(false, 'Correo inválido.');
+        $faltaCat = faltaNaveRegion($nave, $region);
+        if ($faltaCat !== '') responder(false, $faltaCat);
         $vac = vacanteDe($conn, $idVacante);
         if (!$vac) responder(false, 'Vacante inválida.');
         if (!in_array($vac['estatus'], ['abierta', 'en_proceso'], true)) {
@@ -360,6 +373,10 @@ switch ($accion) {
         // esta vacante pero sirve para la otra—.
         if ($o['estatus'] === 'contratado') {
             responder(false, 'Esta persona ya fue contratada; no se puede postular a otra vacante.');
+        }
+        // Las fichas de antes de que fueran obligatorias pueden no tenerlas.
+        if (faltaNaveRegion((int)$o['nave'] ?: null, (int)$o['region'] ?: null) !== '') {
+            responder(false, 'A esta ficha le falta la nave o la región: captúralas con «Editar» y vuelve a postularla.');
         }
 
         $vac = vacanteDe($conn, $idVacante);
@@ -481,6 +498,8 @@ switch ($accion) {
         if ($nombre === '') responder(false, 'El nombre es obligatorio.');
         if ($apellidos === '') responder(false, 'Los apellidos son obligatorios.');
         if (!filter_var($correo, FILTER_VALIDATE_EMAIL)) responder(false, 'Correo inválido.');
+        $faltaCat = faltaNaveRegion($nave, $region);
+        if ($faltaCat !== '') responder(false, $faltaCat);
         if ($entRrhh['error']) responder(false, $entRrhh['error']);
         [$entRrhhFecha, $entRrhhResVal, $entRrhhObsVal] = [$entRrhh['fecha'], $entRrhh['resultado'], $entRrhh['observaciones']];
 
