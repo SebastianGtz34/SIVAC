@@ -16,7 +16,7 @@ $(function () {
                 } else if (c.estatus === 'documentacion') {
                     detalle = 'Ingreso: ' + (c.fecha_ingreso ? formatearSoloFecha(c.fecha_ingreso) : '—')
                         + '<br>Límite docs: ' + (c.fecha_limite_documentos ? formatearSoloFecha(c.fecha_limite_documentos) : '—')
-                        + (parseInt(c.prorrogas) ? ' <span class="badge badge-light">' + c.prorrogas + ' prórroga(s)</span>' : '');
+                        + (parseInt(c.prorrogas) ? ' <span class="badge badge-light">' + c.prorrogas + ' cambio(s) a mano</span>' : '');
                 } else if (c.estatus === 'contratado') {
                     detalle = '<span class="text-success">Ingreso ' + (c.fecha_ingreso ? formatearSoloFecha(c.fecha_ingreso) : '') + '</span>';
                 }
@@ -395,7 +395,7 @@ $(function () {
         if (ct.fecha_ingreso) $('#ingreso_fecha').val(ct.fecha_ingreso);
         var partes = 'Ingreso: <strong>' + (ct.fecha_ingreso ? formatearSoloFecha(ct.fecha_ingreso) : '—') + '</strong>'
             + ' · Documentos hasta: <strong>' + (ct.fecha_limite_documentos ? formatearSoloFecha(ct.fecha_limite_documentos) : '—') + '</strong>'
-            + (parseInt(ct.prorrogas, 10) ? ' (' + ct.prorrogas + ' prórroga(s))' : '');
+            + (parseInt(ct.prorrogas, 10) ? ' (' + ct.prorrogas + ' cambio(s) a mano)' : '');
         $('#resumenFechas').html(
             '<div class="text-muted">' + partes + '</div>'
             + (ct.aviso ? '<div class="text-warning mt-1"><i class="fas fa-exclamation-triangle mr-1"></i>' + escHtml(ct.aviso) + '</div>' : '')
@@ -427,12 +427,10 @@ $(function () {
         var prorrogas = parseInt(ct.prorrogas, 10);
         $('#limiteActual').html(
             '<span class="' + clase + '">Vigente: <strong>' + formatearSoloFecha(limiteDocs) + '</strong> · ' + estado + '</span>'
-            + (prorrogas ? ' <span class="badge badge-light">' + prorrogas + ' prórroga(s)</span>' : '')
+            + (prorrogas ? ' <span class="badge badge-light">' + prorrogas + ' cambio(s) a mano</span>' : '')
         );
-        // El backend rechaza una fecha igual o anterior; el calendario ya no la ofrece.
-        var minimo = new Date(limite); minimo.setDate(minimo.getDate() + 1);
-        var pad = function (n) { return String(n).padStart(2, '0'); };
-        $p.attr('min', minimo.getFullYear() + '-' + pad(minimo.getMonth() + 1) + '-' + pad(minimo.getDate()));
+        // Sin `min`: desde el 2026-11-24 RRHH la puede adelantar o ampliar.
+        $p.removeAttr('min');
     }
 
     function pintarFaltan(faltan) {
@@ -511,7 +509,7 @@ $(function () {
                     if (res && res.success) { $('#prorroga_fecha').val(''); cargarDatosAlta(); cargar(); }
                 });
             },
-            { titulo: '¿Ampliar el plazo?', confirmar: 'Sí, ampliar', icon: 'question' });
+            { titulo: '¿Cambiar la fecha límite?', confirmar: 'Sí, cambiarla', icon: 'question' });
     });
 
     $('#btnReglamento').on('click', function (e) {

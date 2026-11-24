@@ -320,10 +320,14 @@ completar alta exige fecha de ingreso + reglamento enviado + documentos
 obligatorios **validados** por RRHH **+ los datos del alta completos**; las
 propuestas vencidas expiran automáticamente (lazy) al cargar cierre/dashboard.
 
-La **fecha límite de documentos** es la fecha de ingreso: se fija cuando RRHH
-la registra y la sigue si se mueve (al entrar a documentación queda vacía). Una
-prórroga sólo se da con el ingreso registrado y puede dejarla después de él; si
-el ingreso cambia, una prórroga que ya caía más tarde no se recorta.
+La **fecha límite de documentos** es **un día antes** del ingreso (pedido de
+RRHH 2026-11-24: los papeles tienen que estar antes de que la persona entre;
+antes era el mismo día). Se fija cuando RRHH registra el ingreso y se recalcula
+cada vez que se mueve, aunque RRHH la hubiera cambiado a mano (el mensaje dice
+cuál reemplazó). Al entrar a documentación queda vacía. Con el ingreso
+registrado, RRHH la puede **cambiar a cualquier día**, antes o después de la
+vigente («Cambiar fecha»), y al candidato le llega un correo; si la deja
+después del ingreso, sale un aviso que no bloquea.
 
 ### Datos del alta (lo que jala gestionPersonal)
 `candidatos_datos_alta` guarda CURP, RFC, NSS, sexo, fecha de nacimiento y tipo
@@ -375,8 +379,8 @@ no cambie si el empleado se mueve de región después.
 5. **Escape de toda salida** — `htmlspecialchars` en PHP, `escHtml()` en JS
    (incluidos renders de DataTables).
 6. **Fechas/números saneados con rangos** — opciones de entrevista futuras y
-   distintas, caducidad futura, prórroga posterior a la actual y con fecha de
-   ingreso registrada, ids casteados.
+   distintas, caducidad futura, cambio de la fecha límite de documentos sólo con
+   fecha de ingreso registrada, ids casteados.
 
 Además: `conn.php` y `config_correo.php` gitignored (hay `.example` committeados).
 

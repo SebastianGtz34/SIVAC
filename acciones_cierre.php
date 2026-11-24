@@ -82,8 +82,8 @@ function faltaParaCierre(array $c): string {
 /**
  * Aviso (texto vacío = todo en orden) cuando la fecha límite de documentos cae
  * DESPUÉS del ingreso: el expediente debería estar completo antes de que la
- * persona entre. Desde el 2026-10-19 el límite ES la fecha de ingreso (se fija
- * al registrarla), así que esto sólo salta con una prórroga que lo pasó. No
+ * persona entre. Desde el 2026-11-24 el límite se fija un día antes del ingreso
+ * (limiteDocsPorDefault), así que esto sólo salta si RRHH lo movió a mano. No
  * bloquea a propósito —hay altas urgentes que se cierran con documentos en
  * tránsito— pero RRHH tiene que verlo.
  */
@@ -94,6 +94,15 @@ function avisoFechaDocs(?string $limite, ?string $ingreso): string {
     if (!$tl || !$ti || $tl <= $ti) return '';
     return 'Ojo: la entrega de documentos vence el ' . date('d/m/Y', $tl)
          . ', DESPUÉS del ingreso (' . date('d/m/Y', $ti) . ').';
+}
+
+/**
+ * Fecha límite de documentos por default: un día antes del ingreso (pedido de
+ * RRHH 2026-11-24). Día natural, no hábil: RRHH la ajusta a mano si cae en fin
+ * de semana. Recibe y devuelve 'Y-m-d'.
+ */
+function limiteDocsPorDefault(string $ingreso): string {
+    return date('Y-m-d', strtotime($ingreso . ' -1 day'));
 }
 
 /**
@@ -632,28 +641,39 @@ switch ($accion) {
         if ($id <= 0) responder(false, 'Id inválido.');
         if (!strtotime($fecha)) responder(false, 'Fecha inválida.');
         $fechaVal = date('Y-m-d', strtotime($fecha));
-        // La fecha límite de documentos es la de ingreso (retro 2026-10-19) y la
-        // sigue cada vez que el ingreso se mueve. La excepción es una prórroga que
-        // ya va más allá: se le avisó por correo al candidato y no se le recorta.
+        // La fecha límite de documentos es UN DÍA ANTES del ingreso (pedido de RRHH
+        // 2026-11-24: los papeles tienen que estar antes de que la persona entre;
+        // del 2026-10-19 a esa fecha era el mismo día). Se recalcula cada vez que
+        // el ingreso se mueve, también si RRHH la había cambiado a mano: el nuevo
+        // ingreso manda, y el mensaje dice qué fecha se reemplazó.
+        $limiteVal = limiteDocsPorDefault($fechaVal);
+
+        $stmt = $conn->prepare("SELECT fecha_ingreso, fecha_limite_documentos FROM contrataciones WHERE id_candidato = ? LIMIT 1");
+        $stmt->bind_param('i', $id); $stmt->execute();
+        $previo = $stmt->get_result()->fetch_assoc(); $stmt->close();
+        if (!$previo) responder(false, 'No hay contratación en curso.');
+
         $stmt = $conn->prepare(
-            "UPDATE contrataciones
-                SET fecha_ingreso = ?,
-                    fecha_limite_documentos = IF(prorrogas > 0 AND fecha_limite_documentos > ?, fecha_limite_documentos, ?)
-              WHERE id_candidato = ?"
+            "UPDATE contrataciones SET fecha_ingreso = ?, fecha_limite_documentos = ? WHERE id_candidato = ?"
         );
-        $stmt->bind_param('sssi', $fechaVal, $fechaVal, $fechaVal, $id);
+        $stmt->bind_param('ssi', $fechaVal, $limiteVal, $id);
         $ok = $stmt->execute(); $stmt->close();
         if (!$ok) responder(false, 'No se pudo registrar.');
 
-        $stmt = $conn->prepare("SELECT fecha_limite_documentos FROM contrataciones WHERE id_candidato = ? LIMIT 1");
-        $stmt->bind_param('i', $id); $stmt->execute();
-        $ct = $stmt->get_result()->fetch_assoc(); $stmt->close();
-        $aviso = avisoFechaDocs($ct['fecha_limite_documentos'] ?? null, $fechaVal);
-        responder(true, $aviso
-            ? 'Fecha de ingreso registrada. Se mantiene la prórroga: los documentos vencen el '
-              . date('d/m/Y', strtotime($ct['fecha_limite_documentos'])) . ', después del ingreso.'
-            : 'Fecha de ingreso registrada. Es también la fecha límite para entregar documentos.',
-            ['aviso' => $aviso]);
+        $msg = 'Fecha de ingreso registrada. Los documentos vencen el ' . date('d/m/Y', strtotime($limiteVal))
+             . ', un día antes.';
+        // Sólo se avisa si se pierde una fecha que RRHH puso a mano. La automática
+        // del ingreso anterior (un día antes, o el mismo día con la regla previa
+        // al 2026-11-24) no es de nadie: reemplazarla es justo lo esperado.
+        $antes = $previo['fecha_limite_documentos'] ? substr((string)$previo['fecha_limite_documentos'], 0, 10) : null;
+        $ingAntes = $previo['fecha_ingreso'] ? substr((string)$previo['fecha_ingreso'], 0, 10) : null;
+        $eraAutomatica = $ingAntes && ($antes === $ingAntes || $antes === limiteDocsPorDefault($ingAntes));
+        $reemplazada = $antes && $antes !== $limiteVal && !$eraAutomatica;
+        if ($reemplazada) {
+            $msg .= ' Reemplaza a la fecha límite anterior (' . date('d/m/Y', strtotime($antes)) . ');'
+                  . ' si necesitas otra, cámbiala abajo.';
+        }
+        responder(true, $msg, ['aviso' => $reemplazada ? 1 : 0]);
     }
 
     case 'prorroga_documentos': {
@@ -673,10 +693,15 @@ switch ($accion) {
         if (!$row['fecha_ingreso']) {
             responder(false, 'Registra primero la fecha de ingreso: la entrega de documentos vence ese día y la prórroga se da a partir de ahí.');
         }
-        if ($row['fecha_limite_documentos'] && $tf <= strtotime($row['fecha_limite_documentos'])) {
-            responder(false, 'La prórroga debe ser posterior a la fecha límite actual.');
-        }
+        // RRHH la puede mover a CUALQUIER día, antes o después de la vigente
+        // (pedido de RRHH 2026-11-24; antes sólo se podía ampliar). Lo único que
+        // no tiene caso es «cambiarla» a la misma fecha: no le manda correo a nadie.
         $fechaVal = date('Y-m-d', $tf);
+        if ($row['fecha_limite_documentos'] && substr((string)$row['fecha_limite_documentos'], 0, 10) === $fechaVal) {
+            responder(false, 'Esa ya es la fecha límite vigente.');
+        }
+        // `prorrogas` cuenta los cambios a mano de RRHH (el nombre viene de cuando
+        // sólo se podía ampliar).
         $stmt = $conn->prepare("UPDATE contrataciones SET fecha_limite_documentos = ?, prorrogas = prorrogas + 1 WHERE id_candidato = ?");
         $stmt->bind_param('si', $fechaVal, $id);
         $ok = $stmt->execute(); $stmt->close();
@@ -684,14 +709,15 @@ switch ($accion) {
 
         $avisoCorreo = notificarCandidato($conn, 'prorroga_documentos', [
             'id_candidato' => $id, 'id_vacante' => (int)$c['id_vacante'],
-            'titulo' => 'Prórroga de documentos — ' . $c['nombre'],
+            'titulo' => 'Cambio de fecha límite de documentos — ' . $c['nombre'],
             'correos' => [$c['correo']],
-            'correo_asunto' => 'MESS — Prórroga de entrega de documentos',
-            'correo_titulo' => 'Prórroga de documentos',
-            'correo_html' => 'Hola ' . htmlspecialchars($c['nombre']) . ',<br><br>Se amplió la fecha límite para entregar tu documentación hasta el <strong>' . date('d/m/Y', $tf) . '</strong>.',
+            'correo_asunto' => 'MESS — Nueva fecha límite para entregar tus documentos',
+            'correo_titulo' => 'Nueva fecha límite de documentos',
+            'correo_html' => 'Hola ' . htmlspecialchars($c['nombre']) . ',<br><br>Cambió la fecha límite para entregar tu documentación: ahora es el <strong>' . date('d/m/Y', $tf) . '</strong>.',
         ]);
         $aviso = avisoFechaDocs($fechaVal, $row['fecha_ingreso'] ?? null);
-        responder(true, 'Prórroga registrada.' . ($avisoCorreo ?: ' Se le avisó al candidato por correo.')
+        responder(true, 'Fecha límite cambiada al ' . date('d/m/Y', $tf) . '.'
+            . ($avisoCorreo ?: ' Se le avisó al candidato por correo.')
             . ($aviso ? ' ' . $aviso : ''),
             ['aviso' => ($aviso || $avisoCorreo) ? 1 : 0]);
     }
