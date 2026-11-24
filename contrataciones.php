@@ -64,21 +64,21 @@ include 'encabezado.php';
               <input type="date" class="form-control" id="ingreso_fecha">
               <div class="input-group-append"><button class="btn btn-outline-primary" id="btnIngreso">Guardar</button></div>
             </div>
-            <small class="form-text text-muted">Es también la fecha límite para que el candidato entregue sus documentos.</small>
+            <small class="form-text text-muted">Al guardarla, la fecha límite de documentos queda un día antes.</small>
           </div>
-          <!-- Prórroga: se muestra la fecha límite VIGENTE arriba del campo. Antes
-               sólo había un calendario vacío y un botón «Prórroga», y no se veía
-               qué se estaba ampliando ni que al candidato le llega un correo. -->
+          <!-- Fecha límite: se muestra la VIGENTE arriba del campo. Desde el
+               2026-11-24 RRHH la puede mover a cualquier día, antes o después
+               (antes sólo se podía ampliar). Al candidato le llega un correo. -->
           <div class="form-group"><label>Fecha límite de documentos</label>
             <div id="limiteActual" class="small mb-1"></div>
             <div class="input-group">
               <input type="date" class="form-control" id="prorroga_fecha" title="Nueva fecha límite">
-              <div class="input-group-append"><button class="btn btn-outline-secondary" id="btnProrroga"><i class="fas fa-calendar-plus mr-1"></i>Ampliar plazo</button></div>
+              <div class="input-group-append"><button class="btn btn-outline-secondary" id="btnProrroga"><i class="fas fa-calendar-alt mr-1"></i>Cambiar fecha</button></div>
             </div>
-            <small class="form-text text-muted">Sólo si hace falta dar tiempo después del ingreso; al candidato se le avisa por correo.</small>
+            <small class="form-text text-muted">Puedes adelantarla o ampliarla; al candidato se le avisa por correo.</small>
           </div>
-          <!-- Las dos fechas juntas. El límite es el día de ingreso; si una
-               prórroga lo deja después, se avisa pero no se bloquea (hay altas
+          <!-- Las dos fechas juntas. El límite es un día antes del ingreso; si
+               RRHH lo deja después, se avisa pero no se bloquea (hay altas
                que se cierran con documentos en tránsito). Lo pinta
                js/contrataciones.js. -->
           <div id="resumenFechas" class="small mb-3"></div>
